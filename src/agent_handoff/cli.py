@@ -47,6 +47,30 @@ def _echo(msg: str = "") -> None:
     print(msg)
 
 
+def _relax_console_encoding() -> None:
+    """Never let a character the console cannot encode kill a command.
+
+    Windows consoles still default to a legacy code page, and a task title
+    written in one language on a console configured for another cannot be
+    encoded at all — a Chinese title on a `cp932` console raised
+    `UnicodeEncodeError` out of `handoff status`, and would have killed the
+    thread pumping a supervised agent's output too. The package on disk is
+    UTF-8 regardless, so what the console cannot show must degrade to a
+    replacement character rather than lose the state it is reporting.
+
+    Only the error policy is relaxed. Forcing UTF-8 onto a legacy console
+    instead would garble the text it *can* display today.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is None:  # a test harness or pipe wrapper, not a console
+            continue
+        try:
+            reconfigure(errors="replace")
+        except (ValueError, OSError):  # detached, closed, or already replaced
+            pass
+
+
 def _open_store() -> Store:
     return Store.open(Path.cwd())
 
@@ -852,6 +876,7 @@ def _rewrite_shorthand(argv: Sequence[str], commands: set) -> List[str]:
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
+    _relax_console_encoding()
     parser = build_parser()
     args = parser.parse_args(_rewrite_shorthand(argv, _command_names(parser)))
     try:

@@ -2,7 +2,8 @@ name: tests
 
 on:
   push:
-    branches: [main]
+    # The default branch is `master`; `main` here meant no push ever ran CI.
+    branches: [master]
   pull_request:
   workflow_dispatch:
 

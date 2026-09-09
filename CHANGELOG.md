@@ -11,6 +11,25 @@ is still below 1.0, so the interface may still change.
 
 ## [Unreleased]
 
+### Fixed
+
+- `handoff status` died with `UnicodeEncodeError` when the console's code page
+  could not encode the task title — a Chinese title on a `cp932` console. Found
+  by running the tool that way: `init` had written the package correctly, so
+  the state existed and was unreadable at the same time, which is the failure
+  this tool exists to prevent. The CLI now relaxes the error policy on its own
+  streams, so an unrepresentable character degrades to `?` instead of taking
+  the command down. Only the policy is relaxed: forcing UTF-8 onto a legacy
+  console would garble the text it *can* display.
+
+  `checkpoint --show` failed the same way, and `runner`'s output pump would
+  have too — it writes a supervised agent's output straight to `sys.stdout`,
+  where the exception kills the thread rather than one command. The fix is at
+  the process entry point, which is the only place that covers both.
+
+- CI never ran on a push. The workflow triggered on `main`; the default branch
+  is `master`.
+
 ### Added
 
 - An agent skill in `skills/agent-handoff/`. One directory serves both Codex
