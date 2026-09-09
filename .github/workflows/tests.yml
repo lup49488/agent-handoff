@@ -1,0 +1,43 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  pytest:
+    # The tool shells out to git, spawns child processes, and takes advisory
+    # locks whose staleness check is written twice -- once for Windows, once
+    # for everything else. All three platforms have to run it.
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python: ["3.9", "3.10", "3.11", "3.12", "3.13"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e .
+          python -m pip install pytest
+
+      # 3.9 and 3.10 have no tomllib, so on those versions the built-in TOML
+      # reader is the one that actually loads every config. This matrix is the
+      # only place that gets exercised.
+      - name: Test
+        run: python -m pytest -q
+
+      - name: Check the CLI starts
+        run: |
+          handoff --version
+          handoff agents
