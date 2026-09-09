@@ -11,6 +11,15 @@ is still below 1.0, so the interface may still change.
 
 ## [Unreleased]
 
+### Added
+
+- An agent skill in `skills/agent-handoff/`. One directory serves both Codex
+  and Claude Code: they read the same `SKILL.md`, `agents/openai.yaml` carries
+  the interface metadata Codex shows, and a plugin manifest lets Claude Code
+  install this repository directly. The skill exists because the CLI cannot
+  tell an agent *when* to track a task — that judgement, and the rule that
+  another agent is never launched unasked, live in the skill.
+
 ## [0.9.2] — 2026-09-08
 
 ### Fixed

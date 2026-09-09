@@ -18,6 +18,7 @@ repository — this hands that work to the next agent instead of starting over.
 - [Configuring the chain](#configuring-the-chain)
 - [Durability, health and session reading](#durability-health-and-session-reading)
 - [What gets stored](#what-gets-stored)
+- [Using it from an agent](#using-it-from-an-agent)
 - [Development](#development)
 
 ## Status
@@ -201,6 +202,40 @@ To teach it to read a new agent's session log, add a `SessionReader` to
 `READERS` in `src/agent_handoff/sessions.py` — but only against a real failing
 session. Guessing at the format is how the failure classifier ended up wrong
 for half its inputs the first time.
+
+## Using it from an agent
+
+The CLI is the whole tool, but an agent has to know *when* to reach for it. A
+skill in `skills/agent-handoff/` carries that judgement: track substantive
+repository work, checkpoint at milestones, never launch another agent without
+being asked.
+
+**Claude Code** — install the repository as a plugin, from the desktop app or
+the CLI:
+
+```text
+/plugin marketplace add lup49488/agent-handoff
+/plugin install agent-handoff@agent-handoff
+```
+
+Or copy the skill in by hand — `~/.claude/skills/` for every project,
+`.claude/skills/` inside one project:
+
+```bash
+cp -r skills/agent-handoff ~/.claude/skills/agent-handoff
+```
+
+**Codex** — copy the same directory into `~/.codex/skills/`. Codex reads the
+same `SKILL.md`; `agents/openai.yaml` supplies the name, blurb and default
+prompt its interface shows.
+
+```bash
+cp -r skills/agent-handoff ~/.codex/skills/agent-handoff
+```
+
+Either way the skill assumes `handoff` is on `PATH`. If it is not, it falls
+back to running the module from a source checkout, as [Install](#install)
+describes.
 
 ## Development
 

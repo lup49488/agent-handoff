@@ -1,0 +1,8 @@
+{
+  "name": "agent-handoff",
+  "description": "Preserve substantive coding work in a local package so the next agent can continue it instead of starting over.",
+  "version": "0.9.2",
+  "author": { "name": "Pinjia Lu" },
+  "homepage": "https://github.com/lup49488/agent-handoff",
+  "license": "MIT"
+}

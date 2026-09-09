@@ -16,6 +16,7 @@
 - [配置 Agent 链](#配置-agent-链)
 - [可靠性、健康状态与会话读取](#可靠性健康状态与会话读取)
 - [保存的内容](#保存的内容)
+- [在 Agent 中使用](#在-agent-中使用)
 - [开发](#开发)
 
 ## 项目状态
@@ -146,6 +147,36 @@ fallback = ["codex"]
 ```
 
 `HANDOFF.md` 生成在项目根目录。运行状态、日志、构建产物和 `HANDOFF.md` 本身均由 `.gitignore` 排除，不会进入源代码提交。
+
+## 在 Agent 中使用
+
+CLI 本身就是完整的工具，但 Agent 还需要知道*何时*该用它。`skills/agent-handoff/`
+下的 Skill 承载这份判断：对实质性的仓库工作启用跟踪、在关键节点写检查点、
+未经用户明确授权不启动其他 Agent。
+
+**Claude Code** — 在桌面端或 CLI 中把本仓库作为插件安装：
+
+```text
+/plugin marketplace add lup49488/agent-handoff
+/plugin install agent-handoff@agent-handoff
+```
+
+也可以直接复制：`~/.claude/skills/` 对所有项目生效，项目内的 `.claude/skills/`
+只对该项目生效。
+
+```bash
+cp -r skills/agent-handoff ~/.claude/skills/agent-handoff
+```
+
+**Codex** — 把同一个目录复制到 `~/.codex/skills/`。Codex 读取相同的
+`SKILL.md`；`agents/openai.yaml` 提供它界面上显示的名称、简介和默认提示词。
+
+```bash
+cp -r skills/agent-handoff ~/.codex/skills/agent-handoff
+```
+
+两种方式都假定 `handoff` 已在 `PATH` 上；若不在，Skill 会按[安装](#安装)一节
+所述从源码目录运行模块。
 
 ## 开发
 

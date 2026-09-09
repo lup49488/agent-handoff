@@ -1,0 +1,11 @@
+{
+  "name": "agent-handoff",
+  "owner": { "name": "Pinjia Lu" },
+  "plugins": [
+    {
+      "source": "./",
+      "name": "agent-handoff",
+      "description": "Failover for coding agents: record task state, then hand it to the next agent."
+    }
+  ]
+}
