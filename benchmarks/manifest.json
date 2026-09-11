@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "tasks": [
+    {
+      "id": "A",
+      "name": "single-module bug",
+      "snapshots": ["30", "60", "80"],
+      "acceptance": "focused regression test"
+    },
+    {
+      "id": "B",
+      "name": "API feature",
+      "snapshots": ["30", "60", "80"],
+      "acceptance": "feature tests and public-interface check"
+    },
+    {
+      "id": "C",
+      "name": "multi-file refactor",
+      "snapshots": ["30", "60", "80"],
+      "acceptance": "full suite and structural assertion"
+    }
+  ]
+}
