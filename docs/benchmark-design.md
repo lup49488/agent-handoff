@@ -101,7 +101,10 @@ tokens, report time, turns, and repeated exploration only.
 
 ## Trial record
 
-Store one JSON record per trial, with paths redacted or made fixture-relative:
+Store one JSON record per trial, with paths redacted or made fixture-relative.
+`accepted` means the trial belongs in the sample; `invalid_reason` is set only
+when it does not. Running past the budget is an outcome, not a disqualification,
+so it is carried by `budget_exceeded` and the two are never set together:
 
 ```json
 {
@@ -116,6 +119,7 @@ Store one JSON record per trial, with paths redacted or made fixture-relative:
   "budget": {"wall_seconds": 1800, "target_turns": 20},
   "accepted": true,
   "completed": true,
+  "budget_exceeded": false,
   "first_verified_progress_seconds": 242,
   "completion_seconds": 611,
   "target_turns": 7,
@@ -151,9 +155,12 @@ baseline retry is not sufficient.
 ## Open decisions before instrumentation
 
 - Select the first target agent/model and its reproducible invocation method.
-- Author the three fixtures and their interruption snapshots without relying on
-  private repositories.
+- ~~Author the three fixtures and their interruption snapshots without relying
+  on private repositories.~~ Done: `benchmarks/fixtures/`, nine snapshots, each
+  in its own Git repository with the pre-task state committed.
 - Choose the harness that can collect target turns and provider telemetry
-  without storing credentials or full conversations.
+  without storing credentials or full conversations. Until one exists,
+  `run_trial.py` records time and completion and leaves turns and tokens null;
+  it does not estimate them.
 - Define the neutral reviewer procedure for classifying repeated file reads and
   out-of-scope final diffs.

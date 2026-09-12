@@ -13,6 +13,60 @@ is still below 1.0, so the interface may still change.
 
 ### Fixed
 
+- A benchmark trial was never its own Git repository, so the comparison it
+  exists to make could not be valid. Prepared inside a checkout — which the
+  documented command line does — the package described the *enclosing*
+  project: its branch, its HEAD, its commits. Prepared anywhere else, the
+  Baseline arm had no history at all, while the design gives it the worktree
+  *and* the history. Each decides the result before the target agent starts,
+  in opposite directions. Every trial now commits the pre-task state and
+  leaves the snapshot's interrupted progress uncommitted, which is what the
+  design asked for in the first place.
+
+- The documented benchmark commands could not run. `benchmarks/*.py` put only
+  `src` on the path, so every `benchmarks.*` import failed — all of
+  `run_trial.py` and Task C's preparation. The tests passed because pytest
+  adds the project root itself and they import the modules rather than running
+  the scripts; the regression tests now run them the way the README does.
+
+- The checkpoint a trial measures was scrambled. Three fixture sections —
+  progress, reasoning, next step — were flattened into "next step" by two
+  string replacements, while "done" and "decisions" carried instrumentation
+  notes. It is now parsed by heading and rendered through the product's own
+  `Checkpoint`, so the package under test is shaped like one a real agent
+  writes.
+
+- The package told the target agent it was in an experiment: a
+  `benchmark_preparation` reason (not a real handoff reason at all) and
+  `benchmark-source` / `benchmark-target` agent names, all rendered into the
+  `HANDOFF.md` the Handoff arm reads. That is not a neutral prompt.
+
+- A trial that ran past its budget was recorded as `accepted` *and* invalid at
+  once, putting it in the sample and out of it simultaneously. Over-budget is
+  now an outcome (`budget_exceeded`) and `invalid_reason` means excluded; the
+  validator rejects records that claim both.
+
+- `task-b`'s 60% snapshot had no next step — the only one of nine missing it.
+
+### Added
+
+- `benchmarks/plan.py` prints a cohort's run order with arm order randomised
+  per cell, as the design requires. Seeded by a string rather than `hash()`,
+  because Python randomises string hashing per process and a plan that differs
+  every run cannot be pre-registered.
+
+- `run_trial.py` now records `first_verified_progress_seconds` — the design's
+  leading comparative metric — by re-running the acceptance check while the
+  target works. Turns and provider tokens stay null: collecting them needs a
+  telemetry-capable harness, and the design forbids estimating them. A target
+  that outruns its budget has its whole process tree killed, so a timed-out
+  trial stops spending quota.
+
+- Failure rehearsals for the four interruption shapes the drills had skipped:
+  a silent stall, a journal line cut in half, a temp file from an unfinished
+  write, and a lock whose holder is gone (plus the live-run lock that recovery
+  must refuse to break).
+
 - `handoff status` died with `UnicodeEncodeError` when the console's code page
   could not encode the task title — a Chinese title on a `cp932` console. Found
   by running the tool that way: `init` had written the package correctly, so

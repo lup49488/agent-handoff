@@ -20,6 +20,7 @@ REQUIRED = {
     "budget": dict,
     "accepted": bool,
     "completed": bool,
+    "budget_exceeded": bool,
     "invalid_reason": (str, type(None)),
 }
 OPTIONAL_NUMBERS = {
@@ -46,6 +47,17 @@ def validate(record: Dict[str, Any]) -> List[str]:
         errors.append("replicate must be positive")
     if record.get("completed") and not record.get("accepted"):
         errors.append("completed trial must be accepted")
+    # An accepted trial ran; running past the budget is one of its outcomes,
+    # not a reason to discard it. Carrying both states at once hides which
+    # denominator the trial belongs in.
+    if record.get("accepted") and record.get("invalid_reason") is not None:
+        errors.append("accepted trial must not carry an invalid_reason")
+    if not record.get("accepted") and record.get("invalid_reason") is None:
+        errors.append("a trial that was not accepted needs an invalid_reason")
+    if record.get("budget_exceeded") and not record.get("accepted"):
+        errors.append("budget_exceeded only applies to an accepted trial")
+    if record.get("accepted") and record.get("completion_seconds") is None:
+        errors.append("accepted trial must record completion_seconds")
     for key in OPTIONAL_NUMBERS:
         value = record.get(key)
         if value is not None and (isinstance(value, bool) or not isinstance(value, (int, float)) or value < 0):

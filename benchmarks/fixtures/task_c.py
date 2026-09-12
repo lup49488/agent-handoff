@@ -1,6 +1,6 @@
-"""Materialize the public Task C snapshots into a disposable directory."""
+"""The public Task C snapshots, generated rather than stored as files."""
 
-from pathlib import Path
+from typing import Dict
 
 
 PROMPT = """Refactor duplicate tag normalization into normalization.py. Export normalize_tags(values), then make both report.py and cli.py import it directly. Preserve trimming, lowercasing, blank removal, and stable deduplication. Do not leave another normalize_tags definition in report.py or cli.py. Make python acceptance.py pass."""
@@ -51,13 +51,13 @@ SNAPSHOTS = {
 }
 
 
-def materialize(root: Path, snapshot: str) -> Path:
-    files, handoff = SNAPSHOTS[snapshot]
-    project = root / "project"
-    project.mkdir(parents=True)
-    for name, text in files.items():
-        (project / name).write_text(text, encoding="utf-8")
-    (project / "acceptance.py").write_text(ACCEPTANCE, encoding="utf-8")
-    (root / "prompt.md").write_text(PROMPT, encoding="utf-8")
-    (root / "handoff-context.md").write_text("## Next step\n\n" + handoff + "\n", encoding="utf-8")
-    return project
+def snapshot_files(snapshot: str) -> Dict[str, str]:
+    """Every file of one snapshot, laid out as the other two tasks store them."""
+    files, _ = SNAPSHOTS[snapshot]
+    return dict(files, **{"acceptance.py": ACCEPTANCE})
+
+
+def context(snapshot: str) -> str:
+    """The source agent's reasoning, in the sections the fixtures use."""
+    _, handoff = SNAPSHOTS[snapshot]
+    return "## Next step\n\n" + handoff + "\n"

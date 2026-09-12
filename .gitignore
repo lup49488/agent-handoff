@@ -10,3 +10,6 @@ venv/
 # handoff working state is per-run, not source
 .agent-handoff/
 HANDOFF.md
+
+# disposable benchmark workspaces; a trial is evidence, not source
+.trials/
