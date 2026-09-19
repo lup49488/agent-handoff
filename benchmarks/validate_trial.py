@@ -30,6 +30,7 @@ OPTIONAL_NUMBERS = {
     "provider_tokens",
     "repeated_commands",
     "repeated_file_reads",
+    "agent_exit_seconds",
 }
 SECRET_MARKERS = ("api_key", "authorization", "bearer ", "sk-", "oauth")
 
@@ -58,6 +59,8 @@ def validate(record: Dict[str, Any]) -> List[str]:
         errors.append("budget_exceeded only applies to an accepted trial")
     if record.get("accepted") and record.get("completion_seconds") is None:
         errors.append("accepted trial must record completion_seconds")
+    if record.get("completed") and record.get("scope_violations"):
+        errors.append("completed trial must have no scope violations")
     for key in OPTIONAL_NUMBERS:
         value = record.get(key)
         if value is not None and (isinstance(value, bool) or not isinstance(value, (int, float)) or value < 0):

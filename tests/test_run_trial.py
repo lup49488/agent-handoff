@@ -58,3 +58,36 @@ def test_the_documented_runner_command_runs_as_a_script(tmp_path):
 
     assert result.returncode == 0, result.stderr
     assert "not_launched" in result.stdout
+
+
+def test_v02_records_fixture_environment_and_planned_order(tmp_path):
+    record = run_trial("A", "60", "baseline", "codex", 1, tmp_path / "trial", plan_seed=17)
+
+    assert record["fixture"]["task"] == "A"
+    assert len(record["fixture"]["snapshot_sha256"]) == 64
+    assert record["environment"]["python"]
+    assert record["schedule"]["planned_arm_order"] == ["baseline", "handoff"] or record["schedule"]["planned_arm_order"] == ["handoff", "baseline"]
+    assert record["schedule"]["planned_position"] in (1, 2)
+
+
+def test_v02_uses_fixture_evaluator_and_audits_scope(tmp_path):
+    from benchmarks.run_trial import _evaluate, _git_head, _scope_violations
+
+    record = run_trial("A", "60", "baseline", "codex", 1, tmp_path / "trial")
+    project = tmp_path / "trial" / "project"
+    # A target may change this in-worktree helper, but the evaluator source is
+    # supplied by the fixture and must still observe the incomplete slug.py.
+    baseline_head = _git_head(project)
+    (project / "acceptance.py").write_text("raise SystemExit(0)\n", encoding="utf-8")
+
+    passed, _, _ = _evaluate(project, "A", "60")
+    assert not passed
+    assert _scope_violations(project, "A", baseline_head) == ["acceptance.py"]
+    subprocess.run(["git", "add", "acceptance.py"], cwd=str(project), check=True)
+    subprocess.run(
+        ["git", "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "bad evaluator edit"],
+        cwd=str(project), check=True,
+    )
+    assert _scope_violations(project, "A", baseline_head) == ["acceptance.py"]
+    (project / "unrelated.txt").write_text("out of scope\n", encoding="utf-8")
+    assert _scope_violations(project, "A", baseline_head) == ["acceptance.py", "unrelated.txt"]

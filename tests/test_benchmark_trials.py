@@ -73,3 +73,9 @@ def test_secret_markers_are_rejected():
 
 def test_validator_has_a_non_error_help_path():
     assert main(["--help"]) == 0
+
+
+def test_completed_trial_cannot_carry_scope_violations():
+    trial = copy.deepcopy(VALID)
+    trial["scope_violations"] = ["acceptance.py"]
+    assert "completed trial must have no scope violations" in validate(trial)

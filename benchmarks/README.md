@@ -60,9 +60,10 @@ killed, so a timed-out trial stops costing money.
 
 | Field | Source |
 |---|---|
-| `completion_seconds` | target launch until the process exits |
+| `completion_seconds` | target launch until the immutable evaluator first passes and scope audit is clean |
+| `agent_exit_seconds` | target launch until the target process exits |
 | `first_verified_progress_seconds` | a probe re-runs the acceptance check every few seconds and records the first pass |
-| `completed` | the acceptance check against the final tree |
+| `completed` | immutable acceptance against the final tree, with no scope violation |
 | `budget_exceeded` | the target was still running at the wall clock |
 | `target_turns`, `provider_tokens` | **null** |
 
@@ -77,6 +78,11 @@ A trial that ran is `accepted` and carries no `invalid_reason`, whether or not
 it completed within budget. `invalid_reason` means the trial does not belong in
 the sample at all — the target never started, or failed before accepting the
 task.
+
+The evaluator source comes from the fixture definition outside `project/`; final
+acceptance stdout/stderr are saved beside `trial.json`. A final diff outside the
+pre-registered task edit surface makes `completed` false. `--plan-seed` records
+the deterministic arm order printed by `plan.py`; it does not launch any arm.
 
 ## Validating a record
 

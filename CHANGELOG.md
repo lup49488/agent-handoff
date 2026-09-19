@@ -11,6 +11,14 @@ is still below 1.0, so the interface may still change.
 
 ## [Unreleased]
 
+### Added
+
+- Benchmark runner v0.2 evidence: each new record includes fixture hashes,
+  platform metadata, planned arm-order metadata when supplied, an externally
+  sourced acceptance evaluation, final acceptance logs, a pre-registered scope
+  audit, and separate first-completion and process-exit timings. Editing a
+  workspace `acceptance.py` can no longer make a trial pass.
+
 ### Fixed
 
 - A benchmark trial was never its own Git repository, so the comparison it
