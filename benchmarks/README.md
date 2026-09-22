@@ -17,6 +17,14 @@ python benchmarks/plan.py --seed 20260911 --replicates 3
 
 Run the trials in the order it prints. The same seed reprints the same plan on
 any machine, so a single cell can be re-run later without disturbing the rest.
+For an executable pre-registration, write the plan once and pass it only to a
+real launch. The runner atomically marks just the next pending row as running,
+then recorded; it refuses a later row or a second concurrent claim.
+
+```text
+python benchmarks/plan.py --seed 20260911 --replicates 3 --output .trials/cohort-plan.json
+python benchmarks/run_trial.py A 60 handoff codex 1 .trials/A-60-handoff-r01 --model <model> --target-version <version> --cohort-plan .trials/cohort-plan.json --launch
+```
 
 ## Preparing a trial
 
@@ -83,6 +91,8 @@ The evaluator source comes from the fixture definition outside `project/`; final
 acceptance stdout/stderr are saved beside `trial.json`. A final diff outside the
 pre-registered task edit surface makes `completed` false. `--plan-seed` records
 the deterministic arm order printed by `plan.py`; it does not launch any arm.
+`--cohort-plan` adds strict next-pending enforcement and therefore requires
+`--launch`.
 
 ## Validating a record
 

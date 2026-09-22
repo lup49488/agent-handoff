@@ -30,6 +30,11 @@ def test_valid_trial_is_accepted():
     assert validate(VALID) == []
 
 
+def test_v2_trial_requires_evidence_fields():
+    trial = copy.deepcopy(VALID)
+    trial["schema_version"] = 2
+    assert "missing fixture" in validate(trial)
+
 def test_completed_trial_cannot_be_rejected():
     trial = copy.deepcopy(VALID)
     trial["accepted"] = False

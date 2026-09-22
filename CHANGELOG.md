@@ -13,6 +13,12 @@ is still below 1.0, so the interface may still change.
 
 ### Added
 
+- Cohort-plan files now have explicit pending/running/recorded states. A real
+  runner launch can claim only the next pending pre-registered trial, preventing
+  accidental arm reordering or concurrent duplicate runs. New trial records use
+  schema v2, whose fixture, environment, start time, and scope-audit evidence
+  are required by the validator while legacy v1 records remain readable.
+
 - Benchmark runner v0.2 evidence: each new record includes fixture hashes,
   platform metadata, planned arm-order metadata when supplied, an externally
   sourced acceptance evaluation, final acceptance logs, a pre-registered scope

@@ -23,6 +23,8 @@ REQUIRED = {
     "budget_exceeded": bool,
     "invalid_reason": (str, type(None)),
 }
+V2_REQUIRED = {"fixture": dict, "environment": dict, "started_at": str, "scope_violations": list}
+
 OPTIONAL_NUMBERS = {
     "first_verified_progress_seconds",
     "completion_seconds",
@@ -42,6 +44,18 @@ def validate(record: Dict[str, Any]) -> List[str]:
             errors.append("missing " + key)
         elif not isinstance(record[key], expected):
             errors.append("invalid " + key)
+    version = record.get("schema_version", 1)
+    if version not in (1, 2):
+        errors.append("unsupported schema_version")
+    if version == 2:
+        for key, expected in V2_REQUIRED.items():
+            if key not in record:
+                errors.append("missing " + key)
+            elif not isinstance(record[key], expected):
+                errors.append("invalid " + key)
+        for key in ("snapshot_sha256", "evaluator_sha256", "initial_head"):
+            if not isinstance(record.get("fixture", {}).get(key), str):
+                errors.append("invalid fixture." + key)
     if record.get("arm") not in ("baseline", "handoff"):
         errors.append("arm must be baseline or handoff")
     if isinstance(record.get("replicate"), bool) or record.get("replicate", 0) < 1:

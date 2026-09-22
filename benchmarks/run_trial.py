@@ -27,6 +27,8 @@ for _path in (ROOT / "src", ROOT):
 from agent_handoff import __version__, gitinfo  # noqa: E402
 from agent_handoff.adapters import registry  # noqa: E402
 from agent_handoff.runner import _kill_process_tree  # noqa: E402
+from agent_handoff.lock import Lock  # noqa: E402
+from agent_handoff.store import atomic_write  # noqa: E402
 from benchmarks.prepare_trial import ARMS, SNAPSHOTS, TASKS, prepare, snapshot_files  # noqa: E402
 from benchmarks.validate_trial import validate  # noqa: E402
 
@@ -114,6 +116,66 @@ def _scope_violations(project: Path, task: str, baseline_head: str) -> list[str]
     return sorted({path for path in changed + untracked if path and path not in ALLOWED_PATHS[task]})
 
 
+def _read_cohort_plan(path: Path) -> Dict[str, Any]:
+    data = json.loads(path.read_text(encoding="utf-8"))
+    if data.get("schema_version") != 1 or not isinstance(data.get("seed"), int):
+        raise ValueError("unsupported cohort plan")
+    if not isinstance(data.get("rows"), list):
+        raise ValueError("cohort plan has no rows")
+    return data
+
+
+def _write_cohort_plan(path: Path, data: Dict[str, Any]) -> None:
+    atomic_write(path, json.dumps(data, indent=2) + "\n")
+
+
+def _claim_cohort_trial_unlocked(path: Path, trial_id: str) -> Dict[str, Any]:
+    """Claim exactly the next pending plan row before a real launch."""
+    data = _read_cohort_plan(path)
+    running = [row for row in data["rows"] if row.get("state") == "running"]
+    if running:
+        raise ValueError("cohort plan has an unresolved running trial: " + str(running[0].get("trial_id")))
+    next_row = next((row for row in data["rows"] if row.get("state") == "pending"), None)
+    if next_row is None:
+        raise ValueError("cohort plan has no pending trials")
+    if next_row.get("trial_id") != trial_id:
+        raise ValueError("cohort plan requires next trial " + str(next_row.get("trial_id")))
+    next_row["state"] = "running"
+    _write_cohort_plan(path, data)
+    return {"seed": data["seed"], **next_row}
+
+
+def _cohort_lock_path(path: Path) -> Path:
+    return path.with_name(path.name + ".lock")
+
+
+def _claim_cohort_trial(path: Path, trial_id: str) -> Dict[str, Any]:
+    with Lock(_cohort_lock_path(path), command="benchmark cohort claim"):
+        return _claim_cohort_trial_unlocked(path, trial_id)
+
+
+def _set_cohort_trial_state_unlocked(path: Path, trial_id: str, state: str) -> None:
+    data = _read_cohort_plan(path)
+    row = next((candidate for candidate in data["rows"] if candidate.get("trial_id") == trial_id), None)
+    if row is None or row.get("state") != "running":
+        raise ValueError("cohort plan has no running trial " + trial_id)
+    row["state"] = state
+    _write_cohort_plan(path, data)
+
+
+def _set_cohort_trial_state(path: Path, trial_id: str, state: str) -> None:
+    with Lock(_cohort_lock_path(path), command="benchmark cohort state"):
+        _set_cohort_trial_state_unlocked(path, trial_id, state)
+
+
+def _finish_cohort_trial(path: Path, trial_id: str) -> None:
+    _set_cohort_trial_state(path, trial_id, "recorded")
+
+
+def _release_cohort_trial(path: Path, trial_id: str) -> None:
+    _set_cohort_trial_state(path, trial_id, "pending")
+
+
 class _ProgressProbe:
     """Record the first independently verified all-checks-pass state."""
 
@@ -172,6 +234,7 @@ def run_trial(
     effort: str = "medium",
     launch: bool = False,
     plan_seed: Optional[int] = None,
+    cohort_plan: Optional[Path] = None,
 ) -> Dict[str, Any]:
     """Prepare a trial, optionally launch one selected target, and record evidence."""
     if target not in TARGETS:
@@ -180,6 +243,8 @@ def run_trial(
         raise ValueError("replicate and wall_seconds must be positive")
     if launch and (model == "unrecorded" or target_version == "unrecorded"):
         raise ValueError("--launch requires --model and --target-version")
+    if cohort_plan is not None and not launch:
+        raise ValueError("--cohort-plan requires --launch")
 
     trial = prepare(task, snapshot, arm, destination)
     if not _package_stayed_out_of_git(trial.project):
@@ -187,6 +252,7 @@ def run_trial(
 
     baseline_head = _git_head(trial.project)
     record: Dict[str, Any] = {
+        "schema_version": 2,
         "trial_id": "%s-%s-%s-r%02d" % (task, snapshot, arm, replicate),
         "task": task,
         "snapshot": snapshot,
@@ -211,6 +277,11 @@ def run_trial(
         "scope_violations": [],
         "invalid_reason": "not_launched",
     }
+    if cohort_plan is not None:
+        planned_plan = _read_cohort_plan(cohort_plan)
+        if plan_seed is not None and plan_seed != planned_plan["seed"]:
+            raise ValueError("--plan-seed does not match --cohort-plan")
+        plan_seed = planned_plan["seed"]
     if plan_seed is not None:
         order = ("baseline", "handoff")
         # Reproduce plan.py's stable per-cell shuffling without making trial
@@ -220,10 +291,22 @@ def run_trial(
         random.Random("%d|%s|%s|%d" % (plan_seed, task, snapshot, replicate)).shuffle(arms)
         record["schedule"] = {"seed": plan_seed, "planned_arm_order": arms, "planned_position": arms.index(arm) + 1}
 
-    if launch:
-        record.update(_launch(trial, task, snapshot, target, arm, model, effort, wall_seconds, baseline_head))
-
-    (trial.root / "trial.json").write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
+    claimed = False
+    try:
+        if cohort_plan is not None:
+            claimed_row = _claim_cohort_trial(cohort_plan, record["trial_id"])
+            claimed = True
+            record["schedule"]["cohort_plan"] = cohort_plan.name
+            record["schedule"]["cohort_position"] = claimed_row["position"]
+        if launch:
+            record.update(_launch(trial, task, snapshot, target, arm, model, effort, wall_seconds, baseline_head))
+        (trial.root / "trial.json").write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
+    except Exception:
+        if claimed:
+            _release_cohort_trial(cohort_plan, record["trial_id"])
+        raise
+    if claimed:
+        _finish_cohort_trial(cohort_plan, record["trial_id"])
     return record
 
 
@@ -292,6 +375,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--wall-seconds", type=int, default=600)
     parser.add_argument("--effort", choices=("medium",), default="medium")
     parser.add_argument("--plan-seed", type=int, help="record the pre-registered arm-order seed")
+    parser.add_argument("--cohort-plan", type=Path, help="claim only the next trial from this pre-registered plan")
     parser.add_argument("--launch", action="store_true", help="start the target agent")
     args = parser.parse_args(argv)
     try:

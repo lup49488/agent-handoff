@@ -5,7 +5,8 @@ import sys
 import pytest
 
 from benchmarks.prepare_trial import ROOT
-from benchmarks.run_trial import run_trial
+from benchmarks.plan import write_cohort_plan
+from benchmarks.run_trial import _claim_cohort_trial, _finish_cohort_trial, run_trial
 from benchmarks.validate_trial import validate
 
 
@@ -91,3 +92,55 @@ def test_v02_uses_fixture_evaluator_and_audits_scope(tmp_path):
     assert _scope_violations(project, "A", baseline_head) == ["acceptance.py"]
     (project / "unrelated.txt").write_text("out of scope\n", encoding="utf-8")
     assert _scope_violations(project, "A", baseline_head) == ["acceptance.py", "unrelated.txt"]
+
+
+def test_cohort_plan_claims_only_the_next_pending_trial(tmp_path):
+    path = tmp_path / "plan.json"
+    data = write_cohort_plan(path, 17, 1, ("A",))
+    first, second = data["rows"][:2]
+
+    claimed = _claim_cohort_trial(path, first["trial_id"])
+    assert claimed["trial_id"] == first["trial_id"]
+    with pytest.raises(ValueError, match="unresolved running"):
+        _claim_cohort_trial(path, second["trial_id"])
+    _finish_cohort_trial(path, first["trial_id"])
+    assert _claim_cohort_trial(path, second["trial_id"])["trial_id"] == second["trial_id"]
+
+
+def test_cohort_plan_requires_a_real_launch(tmp_path):
+    path = tmp_path / "plan.json"
+    write_cohort_plan(path, 17, 1, ("A",))
+
+    with pytest.raises(ValueError, match="requires --launch"):
+        run_trial("A", "30", "baseline", "codex", 1, tmp_path / "trial", cohort_plan=path)
+
+
+def test_launched_trial_records_its_cohort_claim(tmp_path, monkeypatch):
+    import benchmarks.run_trial as runner
+
+    plan_path = tmp_path / "plan.json"
+    plan_data = write_cohort_plan(plan_path, 17, 1, ("A",))
+    row = plan_data["rows"][0]
+
+    def fake_launch(*args):
+        return {
+            "accepted": True,
+            "completed": False,
+            "budget_exceeded": False,
+            "first_verified_progress_seconds": None,
+            "completion_seconds": 1.0,
+            "agent_exit_seconds": 1.0,
+            "target_exit_code": 0,
+            "scope_violations": [],
+            "invalid_reason": None,
+        }
+
+    monkeypatch.setattr(runner, "_launch", fake_launch)
+    record = runner.run_trial(
+        row["task"], row["snapshot"], row["arm"], "codex", row["replicate"], tmp_path / "trial",
+        model="test-model", target_version="test-version", launch=True, cohort_plan=plan_path,
+    )
+
+    assert record["schema_version"] == 2
+    assert record["schedule"]["cohort_position"] == row["position"]
+    assert json.loads(plan_path.read_text(encoding="utf-8"))["rows"][0]["state"] == "recorded"

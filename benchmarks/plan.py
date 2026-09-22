@@ -10,6 +10,7 @@ order is derived from a seed that goes into the record with the results.
 from __future__ import annotations
 
 import argparse
+import json
 import random
 import sys
 from pathlib import Path
@@ -21,6 +22,7 @@ for _path in (ROOT / "src", ROOT):
         sys.path.insert(0, str(_path))
 
 from benchmarks.prepare_trial import ARMS, SNAPSHOTS, TASKS  # noqa: E402
+from agent_handoff.store import atomic_write  # noqa: E402
 
 
 def arm_order(task: str, snapshot: str, replicate: int, seed: int) -> Tuple[str, ...]:
@@ -30,9 +32,6 @@ def arm_order(task: str, snapshot: str, replicate: int, seed: int) -> Tuple[str,
     for a single re-run without disturbing the order of every other cell.
     """
     arms = list(ARMS)
-    # A string seed, not a tuple's hash: Python randomises string hashing per
-    # process, so `hash()` would give a different plan on every run and the
-    # order could never be pre-registered.
     random.Random("%d|%s|%s|%d" % (seed, task, snapshot, replicate)).shuffle(arms)
     return tuple(arms)
 
@@ -44,17 +43,27 @@ def plan(seed: int, replicates: int, tasks: Sequence[str] = TASKS) -> List[dict]
         for snapshot in SNAPSHOTS:
             for replicate in range(1, replicates + 1):
                 for position, arm in enumerate(arm_order(task, snapshot, replicate, seed), 1):
-                    rows.append(
-                        {
-                            "task": task,
-                            "snapshot": snapshot,
-                            "replicate": replicate,
-                            "position": position,
-                            "arm": arm,
-                            "trial_id": "%s-%s-%s-r%02d" % (task, snapshot, arm, replicate),
-                        }
-                    )
+                    rows.append({
+                        "task": task,
+                        "snapshot": snapshot,
+                        "replicate": replicate,
+                        "position": position,
+                        "arm": arm,
+                        "trial_id": "%s-%s-%s-r%02d" % (task, snapshot, arm, replicate),
+                    })
     return rows
+
+
+def write_cohort_plan(path: Path, seed: int, replicates: int, tasks: Sequence[str] = TASKS) -> dict:
+    """Write an immutable-before-launch plan whose rows are claimed in order."""
+    if path.exists():
+        raise FileExistsError("cohort plan already exists: " + str(path))
+    rows = plan(seed, replicates, tasks)
+    for row in rows:
+        row["state"] = "pending"
+    data = {"schema_version": 1, "seed": seed, "replicates": replicates, "rows": rows}
+    atomic_write(path, json.dumps(data, indent=2) + "\n")
+    return data
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -62,11 +71,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--seed", type=int, required=True, help="pre-register this with the plan")
     parser.add_argument("--replicates", type=int, default=3, help="accepted replicates per cell")
     parser.add_argument("--task", action="append", choices=TASKS, help="default: every task")
+    parser.add_argument("--output", type=Path, help="write a stateful cohort plan")
     args = parser.parse_args(argv)
     if args.replicates < 1:
         parser.error("replicates must be positive")
 
     rows = plan(args.seed, args.replicates, args.task or TASKS)
+    if args.output:
+        write_cohort_plan(args.output, args.seed, args.replicates, args.task or TASKS)
     print("# seed " + str(args.seed) + ", " + str(len(rows)) + " trials")
     for row in rows:
         print("%-18s task %s  snapshot %s  replicate %d  run %d of 2" % (

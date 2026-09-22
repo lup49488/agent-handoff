@@ -1,10 +1,13 @@
 """The run order has to be both randomised and pre-registerable."""
 
+import json
 import subprocess
 import sys
 from collections import Counter
 
-from benchmarks.plan import arm_order, plan
+import pytest
+
+from benchmarks.plan import arm_order, plan, write_cohort_plan
 from benchmarks.prepare_trial import ROOT
 
 
@@ -54,3 +57,13 @@ def test_every_cell_runs_both_arms_once():
 def test_arm_order_is_stable_for_one_cell():
     assert arm_order("A", "60", 1, 7) == arm_order("A", "60", 1, 7)
     assert set(arm_order("A", "60", 1, 7)) == {"baseline", "handoff"}
+
+
+def test_written_cohort_plan_starts_pending_and_cannot_be_replaced(tmp_path):
+    path = tmp_path / "plan.json"
+    data = write_cohort_plan(path, 7, 1, ("A",))
+
+    assert json.loads(path.read_text(encoding="utf-8")) == data
+    assert {row["state"] for row in data["rows"]} == {"pending"}
+    with pytest.raises(FileExistsError):
+        write_cohort_plan(path, 8, 1, ("A",))
