@@ -27,6 +27,30 @@ is still below 1.0, so the interface may still change.
 
 ### Fixed
 
+- Task B could never produce a completed trial. Its pre-registered edit
+  surface allowed only `api.py`, but the source agent's own interrupted work —
+  shipped in the 60% and 80% snapshots — had already edited `service.py`, so
+  four of eighteen cells were disqualified before any target ran. Worse, the
+  package told the Handoff arm to sort in the service layer, so the guardrail
+  penalised the arm being evaluated for following the package being evaluated.
+  The surface now includes `service.py`, and a test derives the invariant that
+  missed it: every file a fixture's snapshots change must be inside the surface.
+
+- A runner killed mid-trial wedged its cohort plan. The row stayed `running`
+  forever, every later claim refused, and the only way out was hand-editing
+  JSON. A claim now records the process that took it; the next claim names a
+  dead holder, and `plan.py --release` returns the row to `pending` — refusing
+  while the holder is still alive, since that would let one row be claimed
+  twice.
+
+- An invalid trial consumed its plan row as `recorded`, so a cell could end
+  short of its required replicates with nothing saying so. It now ends as
+  `invalid`, and `plan.py --status` names every short cell.
+
+- The run order was reimplemented inside `run_trial.py` rather than imported
+  from `plan.py`. The copies agreed; they would have stopped agreeing silently
+  the first time either changed.
+
 - A benchmark trial was never its own Git repository, so the comparison it
   exists to make could not be valid. Prepared inside a checkout — which the
   documented command line does — the package described the *enclosing*
@@ -106,6 +130,15 @@ is still below 1.0, so the interface may still change.
   install this repository directly. The skill exists because the CLI cannot
   tell an agent *when* to track a task — that judgement, and the rule that
   another agent is never launched unasked, live in the skill.
+
+### Documented
+
+- Time to verified progress and completion time are the same measurement as
+  implemented: each fixture has one acceptance script, so for every completed
+  trial the two fields hold the same number. The design lists them as two
+  comparative metrics; publishing both would present one result as two pieces
+  of evidence. Separating them is a fixture change — acceptance split into a
+  first regression check and the full set — and is left for that decision.
 
 ## [0.9.2] — 2026-09-08
 
