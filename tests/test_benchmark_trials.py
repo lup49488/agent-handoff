@@ -84,3 +84,10 @@ def test_completed_trial_cannot_carry_scope_violations():
     trial = copy.deepcopy(VALID)
     trial["scope_violations"] = ["acceptance.py"]
     assert "completed trial must have no scope violations" in validate(trial)
+
+
+def test_a_trial_cannot_complete_over_budget():
+    """Completion is defined as passing *within* the stated budget."""
+    trial = copy.deepcopy(VALID)
+    trial["budget_exceeded"] = True
+    assert "a trial over budget cannot be completed" in validate(trial)

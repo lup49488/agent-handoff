@@ -82,6 +82,13 @@ agent/model cohort:
 |---|---|---|
 | Time to verified progress | Wall-clock time from target launch to the first pre-registered test passing | Timestamped command log |
 | Completion time | Wall-clock time from target launch to all acceptance checks passing | Timestamped command log |
+
+> **As implemented, these two coincide.** Each fixture has one acceptance
+> script, so "the first pre-registered test" and "all acceptance checks" are
+> the same event, and `run_trial.py` records the same value for both on every
+> completed trial. Until the fixtures split acceptance into a first regression
+> check and the full set, report one time metric, not two. Both values are also
+> quantised by the 5 s evaluator probe.
 | Target turns | Number of user-visible target turns required to complete | Harness or transcript index, if available |
 | Target tokens | Provider-reported tokens consumed after target launch | Provider telemetry, when available |
 | Repeated exploration | Commands or file reads the source already performed that the target repeats before verified progress | Normalized command/file log plus manual audit |

@@ -27,8 +27,8 @@ for _path in (ROOT / "src", ROOT):
 from agent_handoff import __version__, gitinfo  # noqa: E402
 from agent_handoff.adapters import registry  # noqa: E402
 from agent_handoff.runner import _kill_process_tree  # noqa: E402
-from agent_handoff.lock import Lock  # noqa: E402
-from agent_handoff.store import atomic_write  # noqa: E402
+from benchmarks import plan as plan_mod  # noqa: E402
+from benchmarks.plan import arm_order  # noqa: E402
 from benchmarks.prepare_trial import ARMS, SNAPSHOTS, TASKS, prepare, snapshot_files  # noqa: E402
 from benchmarks.validate_trial import validate  # noqa: E402
 
@@ -39,9 +39,15 @@ HANDOFF_INSTRUCTION = "\n\nOpen and follow HANDOFF.md before making changes."
 # The fixtures pre-register the only source paths a target may change.  The
 # acceptance script itself is deliberately excluded: it is evaluator input,
 # not a solution artifact.
+#
+# Every file a fixture's own snapshots change must be listed. Task B once
+# allowed only `api.py`, while its source agent had already edited
+# `service.py` and its package told the target to sort there: B-60 and B-80
+# were disqualified before any target ran, and the Handoff arm was penalised
+# for following the package it is being measured on.
 ALLOWED_PATHS = {
     "A": {"slug.py"},
-    "B": {"api.py"},
+    "B": {"api.py", "service.py"},
     "C": {"normalization.py", "report.py", "cli.py"},
 }
 
@@ -116,64 +122,13 @@ def _scope_violations(project: Path, task: str, baseline_head: str) -> list[str]
     return sorted({path for path in changed + untracked if path and path not in ALLOWED_PATHS[task]})
 
 
-def _read_cohort_plan(path: Path) -> Dict[str, Any]:
-    data = json.loads(path.read_text(encoding="utf-8"))
-    if data.get("schema_version") != 1 or not isinstance(data.get("seed"), int):
-        raise ValueError("unsupported cohort plan")
-    if not isinstance(data.get("rows"), list):
-        raise ValueError("cohort plan has no rows")
-    return data
-
-
-def _write_cohort_plan(path: Path, data: Dict[str, Any]) -> None:
-    atomic_write(path, json.dumps(data, indent=2) + "\n")
-
-
-def _claim_cohort_trial_unlocked(path: Path, trial_id: str) -> Dict[str, Any]:
-    """Claim exactly the next pending plan row before a real launch."""
-    data = _read_cohort_plan(path)
-    running = [row for row in data["rows"] if row.get("state") == "running"]
-    if running:
-        raise ValueError("cohort plan has an unresolved running trial: " + str(running[0].get("trial_id")))
-    next_row = next((row for row in data["rows"] if row.get("state") == "pending"), None)
-    if next_row is None:
-        raise ValueError("cohort plan has no pending trials")
-    if next_row.get("trial_id") != trial_id:
-        raise ValueError("cohort plan requires next trial " + str(next_row.get("trial_id")))
-    next_row["state"] = "running"
-    _write_cohort_plan(path, data)
-    return {"seed": data["seed"], **next_row}
-
-
-def _cohort_lock_path(path: Path) -> Path:
-    return path.with_name(path.name + ".lock")
-
-
-def _claim_cohort_trial(path: Path, trial_id: str) -> Dict[str, Any]:
-    with Lock(_cohort_lock_path(path), command="benchmark cohort claim"):
-        return _claim_cohort_trial_unlocked(path, trial_id)
-
-
-def _set_cohort_trial_state_unlocked(path: Path, trial_id: str, state: str) -> None:
-    data = _read_cohort_plan(path)
-    row = next((candidate for candidate in data["rows"] if candidate.get("trial_id") == trial_id), None)
-    if row is None or row.get("state") != "running":
-        raise ValueError("cohort plan has no running trial " + trial_id)
-    row["state"] = state
-    _write_cohort_plan(path, data)
-
-
-def _set_cohort_trial_state(path: Path, trial_id: str, state: str) -> None:
-    with Lock(_cohort_lock_path(path), command="benchmark cohort state"):
-        _set_cohort_trial_state_unlocked(path, trial_id, state)
-
-
-def _finish_cohort_trial(path: Path, trial_id: str) -> None:
-    _set_cohort_trial_state(path, trial_id, "recorded")
-
-
-def _release_cohort_trial(path: Path, trial_id: str) -> None:
-    _set_cohort_trial_state(path, trial_id, "pending")
+# The cohort plan's state machine lives with the plan file, where the command
+# that releases an abandoned row can reach it too. These names are what the
+# runner and its tests have always called.
+_read_cohort_plan = plan_mod.read_cohort_plan
+_claim_cohort_trial = plan_mod.claim_trial
+_finish_cohort_trial = plan_mod.finish_trial
+_release_cohort_trial = plan_mod.release_trial
 
 
 class _ProgressProbe:
@@ -283,13 +238,14 @@ def run_trial(
             raise ValueError("--plan-seed does not match --cohort-plan")
         plan_seed = planned_plan["seed"]
     if plan_seed is not None:
-        order = ("baseline", "handoff")
-        # Reproduce plan.py's stable per-cell shuffling without making trial
-        # execution implicit. The caller still launches only an explicit arm.
-        import random
-        arms = list(order)
-        random.Random("%d|%s|%s|%d" % (plan_seed, task, snapshot, replicate)).shuffle(arms)
-        record["schedule"] = {"seed": plan_seed, "planned_arm_order": arms, "planned_position": arms.index(arm) + 1}
+        # The plan's own rule, imported rather than restated: a copy agrees
+        # today and diverges silently the day plan.py changes.
+        arms = list(arm_order(task, snapshot, replicate, plan_seed))
+        record["schedule"] = {
+            "seed": plan_seed,
+            "planned_arm_order": arms,
+            "planned_position": arms.index(arm) + 1,
+        }
 
     claimed = False
     try:
@@ -303,10 +259,15 @@ def run_trial(
         (trial.root / "trial.json").write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
     except Exception:
         if claimed:
-            _release_cohort_trial(cohort_plan, record["trial_id"])
+            # Our own claim: the liveness check exists to protect a row from
+            # other processes, and this one is by definition alive.
+            _release_cohort_trial(cohort_plan, record["trial_id"], force=True)
         raise
     if claimed:
-        _finish_cohort_trial(cohort_plan, record["trial_id"])
+        # An invalid trial still uses up its row; saying so keeps the cell's
+        # shortfall visible instead of counting it towards the sample.
+        final = "recorded" if record["invalid_reason"] is None else "invalid"
+        _finish_cohort_trial(cohort_plan, record["trial_id"], final)
     return record
 
 

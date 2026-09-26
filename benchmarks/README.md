@@ -68,12 +68,26 @@ killed, so a timed-out trial stops costing money.
 
 | Field | Source |
 |---|---|
-| `completion_seconds` | target launch until the immutable evaluator first passes and scope audit is clean |
+| `first_verified_progress_seconds` | a probe re-runs the fixture's evaluator every 5 s and records the first pass |
+| `completion_seconds` | for a completed trial, **the same value**; otherwise target launch until exit |
 | `agent_exit_seconds` | target launch until the target process exits |
-| `first_verified_progress_seconds` | a probe re-runs the acceptance check every few seconds and records the first pass |
 | `completed` | immutable acceptance against the final tree, with no scope violation |
 | `budget_exceeded` | the target was still running at the wall clock |
 | `target_turns`, `provider_tokens` | **null** |
+
+**Time to verified progress and completion time are one measurement here.**
+The design lists them as two comparative metrics — the first pre-registered
+check passing, then all of them — but every fixture has a single acceptance
+script, so there is no earlier check to pass first. For every completed trial
+the two fields hold the same number. Report it once; do not present the pair as
+two independent pieces of evidence. Separating them needs each fixture's
+acceptance split into a first regression check and the full set, which is a
+fixture change, not a runner change.
+
+Both are also quantised by the probe interval: a completed trial's time is the
+first probe that saw a pass, up to 5 s after the tree first became correct.
+That is small against trials measured in minutes, but it is not wall-clock
+precision, and differences between arms smaller than the interval mean nothing.
 
 Turns and provider tokens stay null on purpose. Collecting them needs a harness
 that can read the target's own telemetry, which this runner is not; the design
@@ -93,6 +107,24 @@ pre-registered task edit surface makes `completed` false. `--plan-seed` records
 the deterministic arm order printed by `plan.py`; it does not launch any arm.
 `--cohort-plan` adds strict next-pending enforcement and therefore requires
 `--launch`.
+
+### When a runner dies mid-trial
+
+A claim records the process that took it. If that process is killed, its row
+stays `running` and the next claim refuses to proceed, naming the dead holder.
+Inspect that trial's directory, then release the row:
+
+```text
+python benchmarks/plan.py --plan .trials/cohort-plan.json --release A-60-handoff-r01
+python benchmarks/plan.py --plan .trials/cohort-plan.json --status
+```
+
+Release is refused while the holder is still alive, since that would let one
+row be claimed twice; a holder on another machine cannot be checked, and needs
+`--force`. A trial that ran but is invalid ends its row as `invalid` rather
+than `recorded`: the row is used, the cell is one replicate short, and
+`--status` names every cell in that state. Topping a cell up means adding a
+new pre-registered row, not re-running the old one silently.
 
 ## Validating a record
 

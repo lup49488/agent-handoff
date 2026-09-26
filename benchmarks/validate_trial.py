@@ -75,6 +75,8 @@ def validate(record: Dict[str, Any]) -> List[str]:
         errors.append("accepted trial must record completion_seconds")
     if record.get("completed") and record.get("scope_violations"):
         errors.append("completed trial must have no scope violations")
+    if record.get("completed") and record.get("budget_exceeded"):
+        errors.append("a trial over budget cannot be completed")
     for key in OPTIONAL_NUMBERS:
         value = record.get(key)
         if value is not None and (isinstance(value, bool) or not isinstance(value, (int, float)) or value < 0):
