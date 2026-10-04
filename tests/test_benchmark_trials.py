@@ -35,6 +35,55 @@ def test_v2_trial_requires_evidence_fields():
     trial["schema_version"] = 2
     assert "missing fixture" in validate(trial)
 
+
+def v3_trial(**overrides):
+    trial = copy.deepcopy(VALID)
+    trial.update({
+        "schema_version": 3,
+        "fixture": {
+            "snapshot_sha256": "a" * 64,
+            "evaluator_sha256": "b" * 64,
+            "progress_evaluator_sha256": "c" * 64,
+            "initial_head": "abc123",
+        },
+        "environment": {"python": "3.x", "platform": "test"},
+        "started_at": "2026-10-03T00:00:00+00:00",
+        "scope_violations": [],
+        "initial_checks": {"progress_passed": False, "completion_passed": False},
+        "first_verified_progress_seconds": 242,
+        "completion_seconds": 611,
+        "agent_exit_seconds": 700,
+    })
+    trial.update(overrides)
+    return trial
+
+
+def test_v3_accepts_distinct_progress_and_completion_times():
+    assert validate(v3_trial()) == []
+
+
+def test_v3_rejects_completion_before_verified_progress():
+    trial = v3_trial(completion_seconds=200)
+    assert "first_verified_progress_seconds cannot exceed completion_seconds" in validate(trial)
+
+
+def test_v3_incomplete_accepted_trial_can_have_no_completion_time():
+    trial = v3_trial(completed=False, completion_seconds=None)
+    assert validate(trial) == []
+
+
+def test_v3_records_zero_when_progress_check_passes_at_launch():
+    trial = v3_trial(initial_checks={"progress_passed": True, "completion_passed": False},
+                     first_verified_progress_seconds=0)
+    assert validate(trial) == []
+
+
+def test_v3_rejects_completion_check_already_passing_at_launch():
+    trial = v3_trial(initial_checks={"progress_passed": True, "completion_passed": True},
+                     first_verified_progress_seconds=0)
+    assert "accepted v3 trial cannot start with completion already passing" in validate(trial)
+
+
 def test_completed_trial_cannot_be_rejected():
     trial = copy.deepcopy(VALID)
     trial["accepted"] = False

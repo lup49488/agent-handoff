@@ -44,3 +44,6 @@ def test_task_b_acceptance_allows_a_correct_completion(tmp_path, snapshot):
     (project / "service.py").write_text(SERVICE, encoding="utf-8")
     (project / "api.py").write_text(API, encoding="utf-8")
     assert subprocess.run([sys.executable, "acceptance.py"], cwd=project).returncode == 0
+    from benchmarks.run_trial import _evaluate
+
+    assert _evaluate(project, "B", snapshot, check="progress")[0]

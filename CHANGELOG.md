@@ -13,6 +13,11 @@ is still below 1.0, so the interface may still change.
 
 ### Added
 
+- Benchmark schema v3 separates each fixture's first regression check from
+  full acceptance, records independent progress and completion times, and adds
+  a cohort-stratified summary that shows missing cells and does not pool tasks,
+  snapshots, or pinned agent/model configurations.
+
 - Cohort-plan files now have explicit pending/running/recorded states. A real
   runner launch can claim only the next pending pre-registered trial, preventing
   accidental arm reordering or concurrent duplicate runs. New trial records use

@@ -69,30 +69,53 @@ def _fixture_metadata(task: str, snapshot: str) -> Dict[str, str]:
     files = snapshot_files(task, snapshot)
     acceptance = files["acceptance.py"]
     packed = "".join(name + "\0" + text + "\0" for name, text in sorted(files.items()))
+    progress_evaluator = _progress_source(task, snapshot)
     return {
         "task": task,
         "snapshot": snapshot,
         "snapshot_sha256": _sha256(packed),
         "evaluator_sha256": _sha256(acceptance),
+        "progress_evaluator_sha256": _sha256(progress_evaluator),
     }
 
 
-def _evaluate(project: Path, task: str, snapshot: str, *, persist_to: Optional[Path] = None) -> Tuple[bool, str, str]:
-    """Run the fixture-owned evaluator with the project as its import root.
+def _progress_source(task: str, snapshot: str) -> str:
+    if task == "C":
+        from benchmarks.fixtures.task_c import PROGRESS
+
+        return PROGRESS
+    path = ROOT / "benchmarks" / "fixtures" / ("task-" + task.lower()) / "progress.py"
+    return path.read_text(encoding="utf-8")
+
+
+def _evaluate(
+    project: Path,
+    task: str,
+    snapshot: str,
+    *,
+    check: str = "completion",
+    persist_to: Optional[Path] = None,
+) -> Tuple[bool, str, str]:
+    """Run one immutable fixture check with the project as its import root.
 
     ``python -c`` preserves the task workspace on sys.path while the source is
     fetched from benchmarks/fixtures rather than the agent-controlled project.
     """
-    acceptance = snapshot_files(task, snapshot)["acceptance.py"]
+    if check == "completion":
+        source = snapshot_files(task, snapshot)["acceptance.py"]
+    elif check == "progress":
+        source = _progress_source(task, snapshot)
+    else:
+        raise ValueError("check must be progress or completion")
     result = subprocess.run(
-        [sys.executable, "-c", acceptance],
+        [sys.executable, "-c", source],
         cwd=str(project),
         capture_output=True,
         text=True,
         encoding="utf-8",
         errors="replace",
     )
-    if persist_to is not None:
+    if persist_to is not None and check == "completion":
         (persist_to / "acceptance.stdout.log").write_text(result.stdout, encoding="utf-8")
         (persist_to / "acceptance.stderr.log").write_text(result.stderr, encoding="utf-8")
     return result.returncode == 0, result.stdout, result.stderr
@@ -131,26 +154,39 @@ _finish_cohort_trial = plan_mod.finish_trial
 _release_cohort_trial = plan_mod.release_trial
 
 
-class _ProgressProbe:
-    """Record the first independently verified all-checks-pass state."""
+class _MetricProbe:
+    """Independently record first task progress and full completion."""
 
-    def __init__(self, project: Path, task: str, snapshot: str, started: float) -> None:
+    def __init__(
+        self, project: Path, task: str, snapshot: str, started: float, *, progress_passed_at_start: bool = False
+    ) -> None:
         self.project = project
         self.task = task
         self.snapshot = snapshot
         self.started = started
-        self.first_pass: Optional[float] = None
+        self.first_progress: Optional[float] = 0.0 if progress_passed_at_start else None
+        self.completion: Optional[float] = None
         self._stop = threading.Event()
         self._thread = threading.Thread(target=self._run, daemon=True)
 
     def _run(self) -> None:
-        while not self._stop.wait(PROBE_SECONDS):
-            passed, _, _ = _evaluate(self.project, self.task, self.snapshot)
-            if passed:
-                self.first_pass = round(time.monotonic() - self.started, 3)
+        while not self._stop.is_set():
+            probe_started = time.monotonic()
+            if self.first_progress is None:
+                passed, _, _ = _evaluate(self.project, self.task, self.snapshot, check="progress")
+                if passed:
+                    self.first_progress = round(time.monotonic() - self.started, 3)
+            if self.completion is None:
+                passed, _, _ = _evaluate(self.project, self.task, self.snapshot)
+                if passed:
+                    self.completion = round(time.monotonic() - self.started, 3)
+            if self.completion is not None:
+                return
+            delay = max(0.0, PROBE_SECONDS - (time.monotonic() - probe_started))
+            if self._stop.wait(delay):
                 return
 
-    def __enter__(self) -> "_ProgressProbe":
+    def __enter__(self) -> "_MetricProbe":
         self._thread.start()
         return self
 
@@ -207,7 +243,7 @@ def run_trial(
 
     baseline_head = _git_head(trial.project)
     record: Dict[str, Any] = {
-        "schema_version": 2,
+        "schema_version": 3,
         "trial_id": "%s-%s-%s-r%02d" % (task, snapshot, arm, replicate),
         "task": task,
         "snapshot": snapshot,
@@ -225,6 +261,7 @@ def run_trial(
         "budget_exceeded": False,
         "first_verified_progress_seconds": None,
         "completion_seconds": None,
+        "initial_checks": None,
         "agent_exit_seconds": None,
         "target_exit_code": None,
         "target_turns": None,
@@ -277,6 +314,14 @@ def _launch(trial, task: str, snapshot: str, target: str, arm: str, model: str, 
     if arm == "handoff":
         prompt += HANDOFF_INSTRUCTION
 
+    progress_passed_at_start = _evaluate(trial.project, task, snapshot, check="progress")[0]
+    completion_passed_at_start = _evaluate(trial.project, task, snapshot)[0]
+    if completion_passed_at_start:
+        return {
+            "initial_checks": {"progress_passed": progress_passed_at_start, "completion_passed": True},
+            "invalid_reason": "fixture_already_complete",
+        }
+
     started = time.monotonic()
     try:
         process = subprocess.Popen(
@@ -287,10 +332,15 @@ def _launch(trial, task: str, snapshot: str, target: str, arm: str, model: str, 
         )
     except OSError as exc:
         (trial.root / "target.stderr.log").write_text(str(exc) + "\n", encoding="utf-8")
-        return {"invalid_reason": "target_not_started"}
+        return {
+            "initial_checks": {"progress_passed": progress_passed_at_start, "completion_passed": False},
+            "invalid_reason": "target_not_started",
+        }
 
     exceeded = False
-    with _ProgressProbe(trial.project, task, snapshot, started) as probe:
+    with _MetricProbe(
+        trial.project, task, snapshot, started, progress_passed_at_start=progress_passed_at_start
+    ) as probe:
         try:
             stdout, stderr = process.communicate(timeout=wall_seconds)
         except subprocess.TimeoutExpired:
@@ -304,20 +354,30 @@ def _launch(trial, task: str, snapshot: str, target: str, arm: str, model: str, 
     passed, _, _ = _evaluate(trial.project, task, snapshot, persist_to=trial.root)
     violations = _scope_violations(trial.project, task, baseline_head)
     if not exceeded and process.returncode != 0:
-        return {"agent_exit_seconds": elapsed, "target_exit_code": process.returncode, "invalid_reason": "target_failed"}
+        return {
+            "initial_checks": {"progress_passed": progress_passed_at_start, "completion_passed": False},
+            "agent_exit_seconds": elapsed,
+            "target_exit_code": process.returncode,
+            "invalid_reason": "target_failed",
+        }
 
     completed = passed and not violations and not exceeded
-    first_pass = probe.first_pass
-    if completed and first_pass is None:
-        first_pass = elapsed
+    first_progress = probe.first_progress
+    completion = probe.completion
+    if passed:
+        if first_progress is None:
+            first_progress = elapsed
+        if completion is None:
+            completion = elapsed
     return {
         "accepted": True,
         "completed": completed,
         "budget_exceeded": exceeded,
-        "first_verified_progress_seconds": first_pass,
-        "completion_seconds": first_pass if completed else elapsed,
+        "first_verified_progress_seconds": first_progress,
+        "completion_seconds": completion,
         "agent_exit_seconds": elapsed,
         "target_exit_code": process.returncode,
+        "initial_checks": {"progress_passed": progress_passed_at_start, "completion_passed": False},
         "scope_violations": violations,
         "invalid_reason": None,
     }

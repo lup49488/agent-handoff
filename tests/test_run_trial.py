@@ -131,6 +131,7 @@ def test_launched_trial_records_its_cohort_claim(tmp_path, monkeypatch):
             "completion_seconds": 1.0,
             "agent_exit_seconds": 1.0,
             "target_exit_code": 0,
+            "initial_checks": {"progress_passed": False, "completion_passed": False},
             "scope_violations": [],
             "invalid_reason": None,
         }
@@ -141,9 +142,23 @@ def test_launched_trial_records_its_cohort_claim(tmp_path, monkeypatch):
         model="test-model", target_version="test-version", launch=True, cohort_plan=plan_path,
     )
 
-    assert record["schema_version"] == 2
+    assert record["schema_version"] == 3
     assert record["schedule"]["cohort_position"] == row["position"]
     assert json.loads(plan_path.read_text(encoding="utf-8"))["rows"][0]["state"] == "recorded"
+
+
+@pytest.mark.parametrize(("task", "snapshot"), (("A", "60"), ("B", "80"), ("C", "30")))
+def test_fixture_progress_check_can_pass_before_full_acceptance(tmp_path, task, snapshot):
+    from benchmarks.run_trial import _evaluate
+    from benchmarks.prepare_trial import snapshot_files
+
+    project = tmp_path / "project"
+    project.mkdir()
+    for name, contents in snapshot_files(task, snapshot).items():
+        (project / name).write_text(contents, encoding="utf-8")
+
+    assert _evaluate(project, task, snapshot, check="progress")[0]
+    assert not _evaluate(project, task, snapshot, check="completion")[0]
 
 
 # -- the pre-registered edit surface ----------------------------------------

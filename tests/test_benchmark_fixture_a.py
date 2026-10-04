@@ -39,3 +39,6 @@ def test_task_a_acceptance_allows_a_correct_completion(tmp_path, snapshot):
         [sys.executable, "acceptance.py"], cwd=project, capture_output=True, text=True
     )
     assert result.returncode == 0, result.stderr
+    from benchmarks.run_trial import _evaluate
+
+    assert _evaluate(project, "A", snapshot, check="progress")[0]

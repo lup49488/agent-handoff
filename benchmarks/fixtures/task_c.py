@@ -15,6 +15,10 @@ assert "def normalize_tags" not in Path("report.py").read_text(encoding="utf-8")
 assert "from normalization import normalize_tags" in Path("report.py").read_text(encoding="utf-8")
 assert "from normalization import normalize_tags" in Path("cli.py").read_text(encoding="utf-8")
 '''
+PROGRESS = '''from report import render_report
+values = [" Alpha ", "beta", "ALPHA", "", "Beta ", "gamma"]
+assert render_report(values) == "alpha,beta,gamma"
+'''
 HELPER = '''def normalize_tags(values):
     result = []
     for value in values:

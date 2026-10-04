@@ -68,26 +68,25 @@ killed, so a timed-out trial stops costing money.
 
 | Field | Source |
 |---|---|
-| `first_verified_progress_seconds` | a probe re-runs the fixture's evaluator every 5 s and records the first pass |
-| `completion_seconds` | for a completed trial, **the same value**; otherwise target launch until exit |
+| `first_verified_progress_seconds` | a fixture-owned first-regression check is re-run every 5 s |
+| `completion_seconds` | the full fixture acceptance check is re-run separately every 5 s; null if incomplete |
 | `agent_exit_seconds` | target launch until the target process exits |
 | `completed` | immutable acceptance against the final tree, with no scope violation |
 | `budget_exceeded` | the target was still running at the wall clock |
 | `target_turns`, `provider_tokens` | **null** |
 
-**Time to verified progress and completion time are one measurement here.**
-The design lists them as two comparative metrics — the first pre-registered
-check passing, then all of them — but every fixture has a single acceptance
-script, so there is no earlier check to pass first. For every completed trial
-the two fields hold the same number. Report it once; do not present the pair as
-two independent pieces of evidence. Separating them needs each fixture's
-acceptance split into a first regression check and the full set, which is a
-fixture change, not a runner change.
+Each task has a separate, fixture-owned first regression check and a full
+acceptance script. The runner records whether each already passed before
+launch; when the progress check is already satisfied, its time is recorded as
+zero. Otherwise the runner records the first later pass. Both times are
+quantised by the five-second probe interval, so differences smaller than that
+interval are not meaningful. An accepted but incomplete trial has no
+`completion_seconds` value. New records use schema v3.
 
-Both are also quantised by the probe interval: a completed trial's time is the
-first probe that saw a pass, up to 5 s after the tree first became correct.
-That is small against trials measured in minutes, but it is not wall-clock
-precision, and differences between arms smaller than the interval mean nothing.
+The early checks measure one bounded milestone per task: basic accent handling
+for A, owner filtering for B, and report normalization for C. A snapshot that
+already passes that milestone records zero seconds and marks it in
+`initial_checks`.
 
 Turns and provider tokens stay null on purpose. Collecting them needs a harness
 that can read the target's own telemetry, which this runner is not; the design
@@ -136,3 +135,16 @@ The validator rejects malformed records, impossible completion states,
 contradictory acceptance states, negative measurements, and common credential
 markers. It is a publication guardrail, not a substitute for human redaction
 review.
+
+## Summarizing a cohort
+
+The summary accepts schema-v3 records and groups by pinned agent, version,
+model, effort, task, snapshot, and arm. It reports completion rate over accepted
+trials, invalid attempts, median times, and missing accepted replicates without
+pooling cells. It also emits empty cells for a cohort present in the input, so
+missing snapshots remain visible:
+
+```text
+python benchmarks/summarize.py .trials --expected-replicates 3
+python benchmarks/summarize.py .trials --format json
+```

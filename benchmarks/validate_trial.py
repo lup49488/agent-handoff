@@ -45,9 +45,9 @@ def validate(record: Dict[str, Any]) -> List[str]:
         elif not isinstance(record[key], expected):
             errors.append("invalid " + key)
     version = record.get("schema_version", 1)
-    if version not in (1, 2):
+    if version not in (1, 2, 3):
         errors.append("unsupported schema_version")
-    if version == 2:
+    if version in (2, 3):
         for key, expected in V2_REQUIRED.items():
             if key not in record:
                 errors.append("missing " + key)
@@ -56,6 +56,8 @@ def validate(record: Dict[str, Any]) -> List[str]:
         for key in ("snapshot_sha256", "evaluator_sha256", "initial_head"):
             if not isinstance(record.get("fixture", {}).get(key), str):
                 errors.append("invalid fixture." + key)
+    if version == 3 and not isinstance(record.get("fixture", {}).get("progress_evaluator_sha256"), str):
+        errors.append("invalid fixture.progress_evaluator_sha256")
     if record.get("arm") not in ("baseline", "handoff"):
         errors.append("arm must be baseline or handoff")
     if isinstance(record.get("replicate"), bool) or record.get("replicate", 0) < 1:
@@ -71,8 +73,39 @@ def validate(record: Dict[str, Any]) -> List[str]:
         errors.append("a trial that was not accepted needs an invalid_reason")
     if record.get("budget_exceeded") and not record.get("accepted"):
         errors.append("budget_exceeded only applies to an accepted trial")
-    if record.get("accepted") and record.get("completion_seconds") is None:
+    if version in (1, 2) and record.get("accepted") and record.get("completion_seconds") is None:
         errors.append("accepted trial must record completion_seconds")
+    if version == 3:
+        initial_checks = record.get("initial_checks")
+        if record.get("accepted") and not isinstance(initial_checks, dict):
+            errors.append("accepted v3 trial must record initial_checks")
+        elif isinstance(initial_checks, dict):
+            for key in ("progress_passed", "completion_passed"):
+                if not isinstance(initial_checks.get(key), bool):
+                    errors.append("invalid initial_checks." + key)
+            if record.get("accepted") and initial_checks.get("completion_passed") is True:
+                errors.append("accepted v3 trial cannot start with completion already passing")
+        progress_seconds = record.get("first_verified_progress_seconds")
+        completion_seconds = record.get("completion_seconds")
+        exit_seconds = record.get("agent_exit_seconds")
+        if record.get("completed") and progress_seconds is None:
+            errors.append("completed v3 trial must record first_verified_progress_seconds")
+        if record.get("completed") and completion_seconds is None:
+            errors.append("completed v3 trial must record completion_seconds")
+        if (
+            record.get("accepted")
+            and isinstance(initial_checks, dict)
+            and initial_checks.get("progress_passed") is True
+            and progress_seconds != 0
+        ):
+            errors.append("progress already passing at launch must have a zero progress time")
+        numeric = lambda value: isinstance(value, (int, float)) and not isinstance(value, bool)
+        if numeric(progress_seconds) and numeric(exit_seconds) and progress_seconds > exit_seconds:
+            errors.append("first_verified_progress_seconds cannot exceed agent_exit_seconds")
+        if numeric(completion_seconds) and numeric(exit_seconds) and completion_seconds > exit_seconds:
+            errors.append("completion_seconds cannot exceed agent_exit_seconds")
+        if numeric(progress_seconds) and numeric(completion_seconds) and progress_seconds > completion_seconds:
+            errors.append("first_verified_progress_seconds cannot exceed completion_seconds")
     if record.get("completed") and record.get("scope_violations"):
         errors.append("completed trial must have no scope violations")
     if record.get("completed") and record.get("budget_exceeded"):

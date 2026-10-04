@@ -32,3 +32,6 @@ def test_task_c_acceptance_allows_a_correct_completion(tmp_path, snapshot):
         (completed / name).write_text(text, encoding="utf-8")
 
     assert subprocess.run([sys.executable, "acceptance.py"], cwd=completed).returncode == 0
+    from benchmarks.run_trial import _evaluate
+
+    assert _evaluate(completed, "C", snapshot, check="progress")[0]
