@@ -46,11 +46,24 @@ def arm_order(task: str, snapshot: str, replicate: int, seed: int) -> Tuple[str,
     return tuple(arms)
 
 
-def plan(seed: int, replicates: int, tasks: Sequence[str] = TASKS) -> List[dict]:
+def plan(
+    seed: int,
+    replicates: int,
+    tasks: Sequence[str] = TASKS,
+    snapshots: Sequence[str] = SNAPSHOTS,
+) -> List[dict]:
     """Every trial of a cohort, in the order it should be run."""
+    tasks = tuple(tasks)
+    snapshots = tuple(snapshots)
+    if replicates < 1:
+        raise ValueError("replicates must be positive")
+    if not tasks or any(task not in TASKS for task in tasks) or len(set(tasks)) != len(tasks):
+        raise ValueError("tasks must be non-empty, unique, and valid")
+    if not snapshots or any(snapshot not in SNAPSHOTS for snapshot in snapshots) or len(set(snapshots)) != len(snapshots):
+        raise ValueError("snapshots must be non-empty, unique, and valid")
     rows = []
     for task in tasks:
-        for snapshot in SNAPSHOTS:
+        for snapshot in snapshots:
             for replicate in range(1, replicates + 1):
                 for position, arm in enumerate(arm_order(task, snapshot, replicate, seed), 1):
                     rows.append({
@@ -64,14 +77,29 @@ def plan(seed: int, replicates: int, tasks: Sequence[str] = TASKS) -> List[dict]
     return rows
 
 
-def write_cohort_plan(path: Path, seed: int, replicates: int, tasks: Sequence[str] = TASKS) -> dict:
+def write_cohort_plan(
+    path: Path,
+    seed: int,
+    replicates: int,
+    tasks: Sequence[str] = TASKS,
+    snapshots: Sequence[str] = SNAPSHOTS,
+) -> dict:
     """Write an immutable-before-launch plan whose rows are claimed in order."""
     if path.exists():
         raise FileExistsError("cohort plan already exists: " + str(path))
-    rows = plan(seed, replicates, tasks)
+    tasks = tuple(tasks)
+    snapshots = tuple(snapshots)
+    rows = plan(seed, replicates, tasks, snapshots)
     for row in rows:
         row["state"] = "pending"
-    data = {"schema_version": 1, "seed": seed, "replicates": replicates, "rows": rows}
+    data = {
+        "schema_version": 1,
+        "seed": seed,
+        "replicates": replicates,
+        "tasks": list(tasks),
+        "snapshots": list(snapshots),
+        "rows": rows,
+    }
     atomic_write(path, json.dumps(data, indent=2) + "\n")
     return data
 
@@ -186,6 +214,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--seed", type=int, help="pre-register this with the plan")
     parser.add_argument("--replicates", type=int, default=3, help="accepted replicates per cell")
     parser.add_argument("--task", action="append", choices=TASKS, help="default: every task")
+    parser.add_argument("--snapshot", action="append", choices=SNAPSHOTS, help="repeat to select snapshots; default: every snapshot")
     parser.add_argument("--output", type=Path, help="write a stateful cohort plan")
     parser.add_argument("--plan", type=Path, help="an existing cohort plan, for --status or --release")
     parser.add_argument("--status", action="store_true", help="summarise the plan's row states")
@@ -215,9 +244,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.replicates < 1:
         parser.error("replicates must be positive")
 
-    rows = plan(args.seed, args.replicates, args.task or TASKS)
+    selected_tasks = args.task or TASKS
+    selected_snapshots = args.snapshot or SNAPSHOTS
+    try:
+        rows = plan(args.seed, args.replicates, selected_tasks, selected_snapshots)
+    except ValueError as exc:
+        parser.error(str(exc))
     if args.output:
-        write_cohort_plan(args.output, args.seed, args.replicates, args.task or TASKS)
+        write_cohort_plan(args.output, args.seed, args.replicates, selected_tasks, selected_snapshots)
     print("# seed " + str(args.seed) + ", " + str(len(rows)) + " trials")
     for row in rows:
         print("%-18s task %s  snapshot %s  replicate %d  run %d of 2" % (

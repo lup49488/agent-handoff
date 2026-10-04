@@ -54,6 +54,30 @@ def test_every_cell_runs_both_arms_once():
     assert len(cells) == 3 * 3 * 3
 
 
+def test_snapshot_filter_makes_six_trial_instrumentation_cohort():
+    rows = plan(20261004, 1, ("A", "B", "C"), ("60",))
+    cells = Counter((row["task"], row["snapshot"]) for row in rows)
+
+    assert len(rows) == 6
+    assert set(cells.values()) == {2}
+    assert set(cells) == {(task, "60") for task in ("A", "B", "C")}
+
+
+def test_snapshot_filter_is_recorded_in_stateful_plan(tmp_path):
+    data = write_cohort_plan(tmp_path / "plan.json", 7, 1, ("A", "B", "C"), ("80",))
+
+    assert data["tasks"] == ["A", "B", "C"]
+    assert data["snapshots"] == ["80"]
+    assert len(data["rows"]) == 6
+    assert {row["snapshot"] for row in data["rows"]} == {"80"}
+
+
+@pytest.mark.parametrize("tasks,snapshots", [(("A", "A"), ("60",)), (("A",), ("60", "60"))])
+def test_plan_rejects_duplicate_filters(tasks, snapshots):
+    with pytest.raises(ValueError, match="unique"):
+        plan(7, 1, tasks, snapshots)
+
+
 def test_arm_order_is_stable_for_one_cell():
     assert arm_order("A", "60", 1, 7) == arm_order("A", "60", 1, 7)
     assert set(arm_order("A", "60", 1, 7)) == {"baseline", "handoff"}

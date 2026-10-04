@@ -13,6 +13,10 @@ is still below 1.0, so the interface may still change.
 
 ### Added
 
+- Cohort plans can restrict the pre-registered task/snapshot cells with
+  repeatable `--task` and `--snapshot` filters, while recording those choices
+  in the plan file. Defaults still include every task and snapshot.
+
 - Benchmark schema v3 separates each fixture's first regression check from
   full acceptance, records independent progress and completion times, and adds
   a cohort-stratified summary that shows missing cells and does not pool tasks,

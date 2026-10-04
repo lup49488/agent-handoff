@@ -15,6 +15,15 @@ reproducible, so it comes from a seed you record alongside the results:
 python benchmarks/plan.py --seed 20260911 --replicates 3
 ```
 
+By default, every task and snapshot is included. Repeat `--task` and
+`--snapshot` to pre-register a smaller cohort; the selected values are recorded
+in the stateful plan. For example, one replicate at snapshot 60 across all
+three tasks contains six trials (one Baseline and one Handoff per task):
+
+```text
+python benchmarks/plan.py --seed 20261004 --replicates 1 --task A --task B --task C --snapshot 60 --output .trials/v03-instrumentation.json
+```
+
 Run the trials in the order it prints. The same seed reprints the same plan on
 any machine, so a single cell can be re-run later without disturbing the rest.
 For an executable pre-registration, write the plan once and pass it only to a
