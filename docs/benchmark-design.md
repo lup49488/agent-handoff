@@ -101,6 +101,11 @@ tokens, report time, turns, and repeated exploration only.
 
 - Final acceptance checks pass and the final diff remains in task scope.
 - `handoff verify` succeeds before the Handoff target starts.
+- The target is isolated from its user's setup: no handoff skill, no
+  persistent memory, and a working directory that names neither task nor arm.
+  A Baseline target that uses the `handoff` CLI, or either arm reading the
+  skill or memories, invalidates the trial. v0.3 failed this in every trial
+  from r02 on; see `benchmarks/results/`.
 - No secret, session transcript, or provider credential appears in the result
   bundle.
 - The recovery package does not alter tracked source files before the target

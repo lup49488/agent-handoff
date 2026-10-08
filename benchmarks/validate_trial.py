@@ -24,6 +24,7 @@ REQUIRED = {
     "invalid_reason": (str, type(None)),
 }
 V2_REQUIRED = {"fixture": dict, "environment": dict, "started_at": str, "scope_violations": list}
+V4_REQUIRED = {"isolation": dict, "contamination": list, "progress_separable": bool}
 
 OPTIONAL_NUMBERS = {
     "first_verified_progress_seconds",
@@ -45,9 +46,9 @@ def validate(record: Dict[str, Any]) -> List[str]:
         elif not isinstance(record[key], expected):
             errors.append("invalid " + key)
     version = record.get("schema_version", 1)
-    if version not in (1, 2, 3):
+    if version not in (1, 2, 3, 4):
         errors.append("unsupported schema_version")
-    if version in (2, 3):
+    if version in (2, 3, 4):
         for key, expected in V2_REQUIRED.items():
             if key not in record:
                 errors.append("missing " + key)
@@ -56,7 +57,7 @@ def validate(record: Dict[str, Any]) -> List[str]:
         for key in ("snapshot_sha256", "evaluator_sha256", "initial_head"):
             if not isinstance(record.get("fixture", {}).get(key), str):
                 errors.append("invalid fixture." + key)
-    if version == 3 and not isinstance(record.get("fixture", {}).get("progress_evaluator_sha256"), str):
+    if version in (3, 4) and not isinstance(record.get("fixture", {}).get("progress_evaluator_sha256"), str):
         errors.append("invalid fixture.progress_evaluator_sha256")
     if record.get("arm") not in ("baseline", "handoff"):
         errors.append("arm must be baseline or handoff")
@@ -75,7 +76,7 @@ def validate(record: Dict[str, Any]) -> List[str]:
         errors.append("budget_exceeded only applies to an accepted trial")
     if version in (1, 2) and record.get("accepted") and record.get("completion_seconds") is None:
         errors.append("accepted trial must record completion_seconds")
-    if version == 3:
+    if version in (3, 4):
         initial_checks = record.get("initial_checks")
         if record.get("accepted") and not isinstance(initial_checks, dict):
             errors.append("accepted v3 trial must record initial_checks")
@@ -108,6 +109,21 @@ def validate(record: Dict[str, Any]) -> List[str]:
             errors.append("first_verified_progress_seconds cannot exceed completion_seconds")
     if record.get("completed") and record.get("scope_violations"):
         errors.append("completed trial must have no scope violations")
+    if version == 4:
+        for key, expected in V4_REQUIRED.items():
+            if key not in record:
+                errors.append("missing " + key)
+            elif not isinstance(record[key], expected):
+                errors.append("invalid " + key)
+        # A contaminated target was not in its arm's condition. The reason and
+        # the evidence for it travel together, so neither can be asserted alone.
+        contaminated = record.get("invalid_reason") == "contaminated"
+        if contaminated and not record.get("contamination"):
+            errors.append("a contaminated trial must say what contaminated it")
+        if record.get("contamination") and not contaminated:
+            errors.append("a trial with contamination evidence must be invalid as contaminated")
+        if record.get("progress_separable") and not record.get("accepted"):
+            errors.append("progress_separable only applies to an accepted trial")
     if record.get("completed") and record.get("budget_exceeded"):
         errors.append("a trial over budget cannot be completed")
     for key in OPTIONAL_NUMBERS:

@@ -84,12 +84,39 @@ and `--target-version`, because a trial whose target is not pinned cannot join a
 cohort. A target that runs past `--wall-seconds` has its whole process tree
 killed, so a timed-out trial stops costing money.
 
+### Isolation
+
+A target measures its arm's condition only if nothing else reaches it. The
+v0.3 cohort showed three things that did: a globally installed agent-handoff
+skill (every Baseline agent from r02 on started handoff tracking itself),
+persistent memories that describe the experiment, and a working directory
+named after the arm. A launched trial therefore:
+
+- runs in a fresh temporary directory whose name carries no task, arm or
+  replicate, outside any repository, and is moved to the destination you gave
+  once the target has finished;
+- for Codex, runs with memories off and every skill under `$CODEX_HOME/skills`
+  disabled for that one invocation (skills Codex ships in `skills/.system`
+  stay; your configuration on disk is not changed);
+- for Codex, renders the model's input with `codex debug prompt-input` before
+  launching — no model call — and refuses to launch if a disabled skill still
+  appears in it;
+- for Claude Code, runs with `--disable-slash-commands`, which disables all
+  skills. Its user memory is not switched off, and this path has not been
+  verified against a real Claude Code run;
+- after the run, scans the target's logs. Reading the handoff skill or the
+  agent's memories, in either arm, or using the `handoff` CLI or creating a
+  package in the Baseline arm, makes the trial `contaminated`: it is excluded,
+  with what was found recorded in `contamination`.
+
 ### What the record contains
 
 | Field | Source |
 |---|---|
-| `first_verified_progress_seconds` | a fixture-owned first-regression check is re-run every 5 s |
-| `completion_seconds` | the full fixture acceptance check is re-run separately every 5 s; null if incomplete |
+| `first_verified_progress_seconds` | a fixture-owned progress check is re-run every 5 s |
+| `completion_seconds` | the full fixture acceptance check, in the same probe rounds; null if incomplete |
+| `progress_separable` | progress was seen during the run, in an earlier round than completion |
+| `isolation`, `contamination` | what the target was launched with, and anything that reached it anyway |
 | `agent_exit_seconds` | target launch until the target process exits |
 | `completed` | immutable acceptance against the final tree, with no scope violation |
 | `budget_exceeded` | the target was still running at the wall clock |
@@ -101,12 +128,21 @@ launch; when the progress check is already satisfied, its time is recorded as
 zero. Otherwise the runner records the first later pass. Both times are
 quantised by the five-second probe interval, so differences smaller than that
 interval are not meaningful. An accepted but incomplete trial has no
-`completion_seconds` value. New records use schema v3.
+`completion_seconds` value. New records use schema v4.
 
-The early checks measure one bounded milestone per task: basic accent handling
-for A, owner filtering for B, and report normalization for C. A snapshot that
-already passes that milestone records zero seconds and marks it in
-`initial_checks`.
+Both checks run in the same probe round, a fraction of a second apart. A
+progress pass seen in the round that also saw completion is one observation,
+not two, and in v0.3 that was every B/60 trial (20.079 s against 20.094 s).
+`progress_separable` is true only when progress was seen in an earlier round;
+the summary reports the progress median from those trials alone.
+
+The progress checks are one bounded milestone per task: accent handling for
+A, owner filtering with closed tasks excluded for B, and for C the shared
+module existing with at least one consumer importing it. C's milestone is
+structural because a refactor preserves behaviour at every step — a
+behavioural check passed before any work, at every snapshot. A snapshot that
+already passes its milestone (A at 60, C at 80) records zero seconds and marks
+it in `initial_checks`; that zero is not progress the target made.
 
 Turns and provider tokens stay null on purpose. Collecting them needs a harness
 that can read the target's own telemetry, which this runner is not; the design
@@ -158,7 +194,7 @@ review.
 
 ## Summarizing a cohort
 
-The summary accepts schema-v3 records and groups by pinned agent, version,
+The summary accepts schema-v3 and v4 records and groups by pinned agent, version,
 model, effort, task, snapshot, and arm. It reports completion rate over accepted
 trials, invalid attempts, median times, and missing accepted replicates without
 pooling cells. It also emits empty cells for a cohort present in the input, so
@@ -168,3 +204,14 @@ missing snapshots remain visible:
 python benchmarks/summarize.py .trials --expected-replicates 3
 python benchmarks/summarize.py .trials --format json
 ```
+
+A trial set aside for a reason the record itself does not carry — a provider
+outage, say — goes in an exclusions file mapping its id to that reason, so the
+summary and any written report exclude the same trials:
+
+```text
+python benchmarks/summarize.py benchmarks/results/v03-records --exclusions benchmarks/results/v03-exclusions.json
+```
+
+Exclude for a cause independent of the outcome, and record the evidence for
+it. Running over budget is an outcome, not a reason.

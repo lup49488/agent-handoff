@@ -10,14 +10,19 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import platform
+import re
+import shutil
+import stat
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 ROOT = Path(__file__).resolve().parents[1]
 for _path in (ROOT / "src", ROOT):
@@ -52,13 +57,116 @@ ALLOWED_PATHS = {
 }
 
 
+def _codex_home() -> Path:
+    return Path(os.environ.get("CODEX_HOME") or (Path.home() / ".codex"))
+
+
+def _isolation_args(target: str) -> List[str]:
+    """Switch off what the target would otherwise bring from its user's setup.
+
+    The v0.3 cohort ran Codex with the developer's own configuration: a
+    globally installed agent-handoff skill told every Baseline agent to start
+    handoff tracking itself, and persistent memories described the
+    Baseline/Handoff design to the agents being measured. Neither arm was the
+    condition it claimed to be.
+
+    For Codex, memories are switched off and every user-installed skill is
+    disabled for this one invocation; the user's configuration on disk is not
+    touched. Skills Codex ships in `skills/.system` stay, since they are part
+    of the agent as released. For Claude Code, `--disable-slash-commands`
+    disables all skills; its user memory is not switched off here, which the
+    contamination scan exists to catch.
+    """
+    if target != "codex":
+        return ["--disable-slash-commands"]
+    skills_dir = _codex_home() / "skills"
+    skills = sorted(
+        path / "SKILL.md"
+        for path in (skills_dir.iterdir() if skills_dir.is_dir() else ())
+        if path.is_dir() and not path.name.startswith(".")
+    )
+    # TOML literal strings: a Windows path needs no escaping inside '...'.
+    disabled = ",".join("{path='%s',enabled=false}" % path for path in skills)
+    return [
+        "-c", "features.memories=false",
+        "-c", "memories.use_memories=false",
+        "-c", "memories.generate_memories=false",
+        "-c", "skills.config=[%s]" % disabled,
+    ]
+
+
+def _user_skill_names() -> List[str]:
+    skills_dir = _codex_home() / "skills"
+    if not skills_dir.is_dir():
+        return []
+    return sorted(p.name for p in skills_dir.iterdir() if p.is_dir() and not p.name.startswith("."))
+
+
+def _preflight_verdict(rendered: str, skill_names: Sequence[str]) -> str:
+    """`failed` if a disabled skill still reaches the model's input."""
+    return "failed" if any(name in rendered for name in skill_names) else "passed"
+
+
+def _preflight(target: str, project: Path) -> str:
+    """Render what the model will be given, before spending anything on it.
+
+    `codex debug prompt-input` builds the model-visible input without calling
+    a model. A user skill that survives the isolation arguments shows up
+    there, so a broken override is caught before a launch rather than in a
+    finished cohort. `unavailable` when this Codex has no such command; the
+    contamination scan after the run still applies.
+    """
+    executable = shutil.which("codex") if target == "codex" else None
+    if executable is None:
+        return "unavailable"
+    try:
+        rendered = subprocess.run(
+            [executable, "debug", "prompt-input", *_isolation_args(target), "preflight"],
+            cwd=str(project), capture_output=True, text=True, encoding="utf-8",
+            errors="replace", timeout=120, check=True,
+        ).stdout
+    except (OSError, subprocess.SubprocessError):
+        return "unavailable"
+    return _preflight_verdict(rendered, _user_skill_names())
+
+
 def _target_argv(adapter, prompt: str, target: str, model: str, effort: str) -> list:
     argv = adapter.exec_argv(prompt)
     if target == "codex":
         pinned = ["--model", model, "-c", 'model_reasoning_effort="' + effort + '"']
     else:
         pinned = ["--model", model, "--effort", effort]
-    return argv[:-1] + pinned + argv[-1:]
+    return argv[:-1] + pinned + _isolation_args(target) + argv[-1:]
+
+
+#: What a target's logs show when something outside the arm's condition
+#: reached it. The Handoff arm is supposed to use the `handoff` CLI and read
+#: the package; the Baseline arm is not, and neither arm should read the
+#: handoff skill or the agent's persistent memories.
+_SKILL_READ = re.compile(r"skills[\\/]+agent-handoff", re.IGNORECASE)
+_MEMORY_READ = re.compile(r"memories[\\/]+[\w.-]*\.md", re.IGNORECASE)
+_HANDOFF_COMMAND = re.compile(
+    r"(?:^|[\s;'\"&|(])(?:handoff(?:\.exe)?|-m\s+agent_handoff)\s+"
+    r"(?:--version|init|status|verify|checkpoint|tests|pack|snapshot|event|command|"
+    r"switch|run|recover|protocol|sessions|health|agents|config)\b",
+    re.MULTILINE,
+)
+
+
+def _contamination(arm: str, project: Path, stdout: str, stderr: str) -> List[str]:
+    """Reasons this trial's target was not in the condition its arm names."""
+    text = (stdout or "") + "\n" + (stderr or "")
+    found = []
+    if _SKILL_READ.search(text):
+        found.append("read the agent-handoff skill")
+    if _MEMORY_READ.search(text):
+        found.append("read the agent's persistent memories")
+    if arm == "baseline":
+        if _HANDOFF_COMMAND.search(text):
+            found.append("ran the handoff CLI")
+        if (project / ".agent-handoff").exists() or (project / "HANDOFF.md").exists():
+            found.append("created a handoff package")
+    return found
 
 
 def _sha256(text: str) -> str:
@@ -166,20 +274,29 @@ class _MetricProbe:
         self.started = started
         self.first_progress: Optional[float] = 0.0 if progress_passed_at_start else None
         self.completion: Optional[float] = None
+        # Which probe round saw each pass. Both checks run in the same round,
+        # a fraction of a second apart, so two times from one round are one
+        # observation and say nothing about progress before completion.
+        self.progress_tick: Optional[int] = None
+        self.completion_tick: Optional[int] = None
+        self._tick = 0
         self._stop = threading.Event()
         self._thread = threading.Thread(target=self._run, daemon=True)
 
     def _run(self) -> None:
         while not self._stop.is_set():
             probe_started = time.monotonic()
+            self._tick += 1
             if self.first_progress is None:
                 passed, _, _ = _evaluate(self.project, self.task, self.snapshot, check="progress")
                 if passed:
                     self.first_progress = round(time.monotonic() - self.started, 3)
+                    self.progress_tick = self._tick
             if self.completion is None:
                 passed, _, _ = _evaluate(self.project, self.task, self.snapshot)
                 if passed:
                     self.completion = round(time.monotonic() - self.started, 3)
+                    self.completion_tick = self._tick
             if self.completion is not None:
                 return
             delay = max(0.0, PROBE_SECONDS - (time.monotonic() - probe_started))
@@ -193,6 +310,17 @@ class _MetricProbe:
     def __exit__(self, *exc_info) -> None:
         self._stop.set()
         self._thread.join(timeout=PROBE_SECONDS * 2)
+
+    @property
+    def progress_separable(self) -> bool:
+        """Progress was seen during the run, in an earlier round than completion.
+
+        Passing at launch is not progress the target made, and a pass seen in
+        the same round as completion cannot be told apart from it.
+        """
+        if self.progress_tick is None:
+            return False
+        return self.completion_tick is None or self.progress_tick < self.completion_tick
 
 
 def _package_stayed_out_of_git(project: Path) -> bool:
@@ -209,6 +337,64 @@ def _package_stayed_out_of_git(project: Path) -> bool:
     ).stdout
     seen = first_segments(tracked) | {line[3:].split("/")[0] for line in changed.splitlines() if line}
     return not (seen & package_paths)
+
+
+def _planned_schedule(
+    task: str,
+    snapshot: str,
+    arm: str,
+    replicate: int,
+    plan_seed: Optional[int],
+    cohort_plan: Optional[Path],
+) -> Optional[Dict[str, Any]]:
+    """The arm order the plan pre-registered for this trial's cell.
+
+    With a cohort plan the order is read from the plan's own rows, because a
+    balanced plan does not follow `arm_order()` — recomputing it would record
+    an order the cohort never ran. Only a bare `--plan-seed` falls back to the
+    per-cell shuffle, which is all a seed alone can reproduce.
+    """
+    if cohort_plan is not None:
+        data = _read_cohort_plan(cohort_plan)
+        if plan_seed is not None and plan_seed != data["seed"]:
+            raise ValueError("--plan-seed does not match --cohort-plan")
+        cell = sorted(
+            (row for row in data["rows"]
+             if row["task"] == task and row["snapshot"] == snapshot and row["replicate"] == replicate),
+            key=lambda row: row["position"],
+        )
+        arms = [row["arm"] for row in cell]
+        if arm not in arms:
+            raise ValueError("this trial is not in the cohort plan")
+        return {"seed": data["seed"], "planned_arm_order": arms, "planned_position": arms.index(arm) + 1}
+    if plan_seed is not None:
+        arms = list(arm_order(task, snapshot, replicate, plan_seed))
+        return {"seed": plan_seed, "planned_arm_order": arms, "planned_position": arms.index(arm) + 1}
+    return None
+
+
+def _remove_tree(path: Path) -> None:
+    """Delete a trial workspace, including Git's read-only object files."""
+    def make_writable(function, target, _info):
+        os.chmod(target, stat.S_IWRITE)
+        function(target)
+
+    if sys.version_info >= (3, 12):
+        shutil.rmtree(path, onexc=make_writable)
+    else:
+        shutil.rmtree(path, onerror=make_writable)
+
+
+def _collect(source: Path, destination: Path, workspace: Path) -> None:
+    """Move a finished trial from its neutral workspace to `destination`.
+
+    Copied then removed rather than renamed: the temporary directory is often
+    on another drive, and a rename across drives is a copy that then fails on
+    Git's read-only objects.
+    """
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copytree(source, destination)
+    _remove_tree(workspace)
 
 
 def run_trial(
@@ -237,14 +423,37 @@ def run_trial(
     if cohort_plan is not None and not launch:
         raise ValueError("--cohort-plan requires --launch")
 
-    trial = prepare(task, snapshot, arm, destination)
+    destination = Path(destination).resolve()
+    trial_id = "%s-%s-%s-r%02d" % (task, snapshot, arm, replicate)
+    schedule = _planned_schedule(task, snapshot, arm, replicate, plan_seed, cohort_plan)
+
+    workspace: Optional[Path] = None
+    if launch:
+        # A launched target works in a fresh temporary directory whose name
+        # carries no task, arm or replicate, outside any repository. Its
+        # working directory is in the context it reads, and a path like
+        # `.trials/B-60-baseline-r06` tells it which arm it is in. The trial is
+        # moved to `destination` once the target has finished.
+        if destination.exists():
+            raise FileExistsError("destination already exists: " + str(destination))
+        workspace = Path(tempfile.mkdtemp())
+        trial = prepare(task, snapshot, arm, workspace / "work")
+    else:
+        trial = prepare(task, snapshot, arm, destination)
     if not _package_stayed_out_of_git(trial.project):
         raise RuntimeError("the handoff package entered the trial repository")
+    preflight = _preflight(target, trial.project) if launch else "not_run"
+    if preflight == "failed":
+        if workspace is not None:
+            _remove_tree(workspace)
+        raise RuntimeError(
+            "isolation preflight failed: a disabled user skill still reaches the model's input"
+        )
 
     baseline_head = _git_head(trial.project)
     record: Dict[str, Any] = {
-        "schema_version": 3,
-        "trial_id": "%s-%s-%s-r%02d" % (task, snapshot, arm, replicate),
+        "schema_version": 4,
+        "trial_id": trial_id,
         "task": task,
         "snapshot": snapshot,
         "arm": arm,
@@ -267,22 +476,17 @@ def run_trial(
         "target_turns": None,
         "provider_tokens": None,
         "scope_violations": [],
+        "progress_separable": False,
+        "isolation": {
+            "workspace": "neutral-temporary" if launch else "destination",
+            "agent_args": _isolation_args(target) if launch else [],
+            "preflight": preflight,
+        },
+        "contamination": [],
         "invalid_reason": "not_launched",
     }
-    if cohort_plan is not None:
-        planned_plan = _read_cohort_plan(cohort_plan)
-        if plan_seed is not None and plan_seed != planned_plan["seed"]:
-            raise ValueError("--plan-seed does not match --cohort-plan")
-        plan_seed = planned_plan["seed"]
-    if plan_seed is not None:
-        # The plan's own rule, imported rather than restated: a copy agrees
-        # today and diverges silently the day plan.py changes.
-        arms = list(arm_order(task, snapshot, replicate, plan_seed))
-        record["schedule"] = {
-            "seed": plan_seed,
-            "planned_arm_order": arms,
-            "planned_position": arms.index(arm) + 1,
-        }
+    if schedule is not None:
+        record["schedule"] = schedule
 
     claimed = False
     try:
@@ -300,6 +504,10 @@ def run_trial(
             # other processes, and this one is by definition alive.
             _release_cohort_trial(cohort_plan, record["trial_id"], force=True)
         raise
+    finally:
+        if workspace is not None:
+            # Whatever happened, the evidence goes where the caller asked.
+            _collect(trial.root, destination, workspace)
     if claimed:
         # An invalid trial still uses up its row; saying so keeps the cell's
         # shortfall visible instead of counting it towards the sample.
@@ -353,6 +561,21 @@ def _launch(trial, task: str, snapshot: str, target: str, arm: str, model: str, 
 
     passed, _, _ = _evaluate(trial.project, task, snapshot, persist_to=trial.root)
     violations = _scope_violations(trial.project, task, baseline_head)
+    contamination = _contamination(arm, trial.project, stdout, stderr)
+    if contamination:
+        # The target ran, but not in its arm's condition, so the trial is
+        # excluded rather than counted. What it measured is kept for audit.
+        return {
+            "initial_checks": {"progress_passed": progress_passed_at_start, "completion_passed": False},
+            "budget_exceeded": False,
+            "first_verified_progress_seconds": probe.first_progress,
+            "completion_seconds": probe.completion,
+            "agent_exit_seconds": elapsed,
+            "target_exit_code": process.returncode,
+            "scope_violations": violations,
+            "contamination": contamination,
+            "invalid_reason": "contaminated",
+        }
     if not exceeded and process.returncode != 0:
         return {
             "initial_checks": {"progress_passed": progress_passed_at_start, "completion_passed": False},
@@ -379,6 +602,7 @@ def _launch(trial, task: str, snapshot: str, target: str, arm: str, model: str, 
         "target_exit_code": process.returncode,
         "initial_checks": {"progress_passed": progress_passed_at_start, "completion_passed": False},
         "scope_violations": violations,
+        "progress_separable": probe.progress_separable,
         "invalid_reason": None,
     }
 

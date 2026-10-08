@@ -15,9 +15,14 @@ assert "def normalize_tags" not in Path("report.py").read_text(encoding="utf-8")
 assert "from normalization import normalize_tags" in Path("report.py").read_text(encoding="utf-8")
 assert "from normalization import normalize_tags" in Path("cli.py").read_text(encoding="utf-8")
 '''
-PROGRESS = '''from report import render_report
-values = [" Alpha ", "beta", "ALPHA", "", "Beta ", "gamma"]
-assert render_report(values) == "alpha,beta,gamma"
+#: A refactor preserves behaviour at every step, so a behavioural check passes
+#: before any work and measures nothing. The milestone is structural instead:
+#: the shared module exists and at least one consumer already imports it.
+PROGRESS = '''from pathlib import Path
+from normalization import normalize_tags
+assert normalize_tags([" A ", "a", ""]) == ["a"]
+consumers = [Path(name).read_text(encoding="utf-8") for name in ("report.py", "cli.py")]
+assert any("from normalization import normalize_tags" in text for text in consumers)
 '''
 HELPER = '''def normalize_tags(values):
     result = []

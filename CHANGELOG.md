@@ -11,6 +11,46 @@ is still below 1.0, so the interface may still change.
 
 ## [Unreleased]
 
+### Fixed
+
+- The Baseline arm was never a no-handoff condition. Targets ran with their
+  developer's own Codex setup, and three things reached them: a globally
+  installed agent-handoff skill, which every Baseline agent from r02 on read
+  before initialising handoff tracking and running the `handoff` CLI itself;
+  persistent memories describing the Baseline/Handoff design, read in most
+  trials of both arms; and a working directory named after the arm. All 24
+  v0.3 trials are now excluded, each with its reason. Launched targets run in
+  a neutral temporary directory with memories off and every user skill
+  disabled; before launching, the model's input is rendered with
+  `codex debug prompt-input` and the launch refused if a disabled skill is
+  still in it; after the run, a log scan excludes any trial that was reached
+  anyway. Verified against the installed Codex: the skill is in the rendered
+  input without the arguments and absent with them, and one real A/60
+  Baseline trial ran with no skill, memory or `handoff` reference in its logs.
+
+- The progress metric carried no information of its own. Both checks run in
+  one probe round, so every v0.3 B/60 progress time sat a fraction of a
+  second before completion (20.079 s against 20.094 s) — one observation
+  reported as two. Task C's milestone was behavioural, and a refactor keeps
+  behaviour at every step, so it passed before any work at every snapshot.
+  Records now say whether progress was seen in an earlier round
+  (`progress_separable`), the summary takes the progress median from those
+  trials only, and C's milestone is structural: the shared module exists and a
+  consumer imports it.
+
+- A balanced cohort plan recorded an arm order it never ran. `run_trial`
+  recomputed the order with the unbalanced shuffle rather than reading the
+  plan's rows. The real r06–r09 cohort agreed only by luck; with seed 1, half
+  of four replicates would have recorded the wrong order.
+
+- The r01 round was excluded because a Baseline trial ran over budget — an
+  outcome, which is not a reason to exclude. Its logs show the independent
+  cause: 12 stream disconnects and 17–18 reconnects each in three of four
+  trials, with 502/503 responses. `summarize.py --exclusions` now takes such
+  reasons from a file, so a summary and a written report set aside the same
+  trials; it also prints times to the millisecond rather than as
+  `37.617000000000004`.
+
 ### Added
 
 - Cohort plans can restrict the pre-registered task/snapshot cells with

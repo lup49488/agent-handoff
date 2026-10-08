@@ -87,3 +87,82 @@ def test_summary_rejects_duplicate_trial_ids_within_a_target_cohort():
 def test_empty_summary_directory_prints_headers(tmp_path, capsys):
     assert main([str(tmp_path)]) == 0
     assert "completion_rate" in capsys.readouterr().out
+
+
+# -- progress that is its own observation ------------------------------------
+
+
+def cell(rows, task="A", snapshot="30", arm="baseline"):
+    return next(r for r in rows if (r["task"], r["snapshot"], r["arm"]) == (task, snapshot, arm))
+
+
+def test_progress_seen_in_the_completion_round_is_not_reported_as_progress():
+    """v0.3 B/60: 20.079 s against 20.094 s is one probe round, not two events."""
+    same_round = trial(first_verified_progress_seconds=20.079, completion_seconds=20.094, agent_exit_seconds=30)
+    row = cell(summarize([same_round]))
+
+    assert row["progress_separable"] == 0
+    assert row["median_first_progress_seconds"] is None
+    assert row["median_completion_seconds"] == 20.094
+
+
+def test_progress_passing_at_launch_is_not_progress_the_target_made():
+    row = cell(summarize([trial(first_verified_progress_seconds=0, completion_seconds=40, agent_exit_seconds=50,
+                                initial_checks={"progress_passed": True, "completion_passed": False})]))
+
+    assert row["progress_separable"] == 0
+    assert row["median_first_progress_seconds"] is None
+
+
+def test_progress_in_an_earlier_round_is_reported():
+    row = cell(summarize([trial(first_verified_progress_seconds=10, completion_seconds=20)]))
+
+    assert row["progress_separable"] == 1
+    assert row["median_first_progress_seconds"] == 10
+
+
+def test_a_v4_record_states_separability_directly():
+    record = trial(schema_version=4, isolation={"workspace": "neutral-temporary", "agent_args": []},
+                   contamination=[], progress_separable=False,
+                   first_verified_progress_seconds=10, completion_seconds=20)
+
+    assert cell(summarize([record]))["progress_separable"] == 0
+
+
+# -- exclusions ----------------------------------------------------------------
+
+
+def test_an_excluded_trial_is_counted_as_excluded_and_nothing_else():
+    """So a summary and a report that set aside the same trial agree on the cell."""
+    kept = trial(trial_id="A-30-baseline-r02")
+    dropped = trial(trial_id="A-30-baseline-r01", completed=False, completion_seconds=None,
+                    first_verified_progress_seconds=None, budget_exceeded=True)
+    row = cell(summarize([kept, dropped], exclusions={"A-30-baseline-r01": "provider outage"}))
+
+    assert row["excluded"] == 1
+    assert row["accepted"] == 1
+    assert row["completion_rate"] == 1.0
+
+
+def test_exclusions_need_a_reason(tmp_path):
+    path = tmp_path / "exclusions.json"
+    path.write_text('{"A-30-baseline-r01": ""}', encoding="utf-8")
+    records = tmp_path / "trial.json"
+    records.write_text(__import__("json").dumps(trial()), encoding="utf-8")
+
+    with pytest.raises(SystemExit):
+        main([str(records), "--exclusions", str(path)])
+
+
+def test_times_are_printed_to_the_millisecond(tmp_path, capsys):
+    """A median of 30.141 and 45.093 printed as 37.617000000000004."""
+    a = trial(trial_id="A-30-baseline-r01", completion_seconds=30.141, first_verified_progress_seconds=10, agent_exit_seconds=60)
+    b = trial(trial_id="A-30-baseline-r02", completion_seconds=45.093, first_verified_progress_seconds=10, agent_exit_seconds=60)
+    for record in (a, b):
+        (tmp_path / (record["trial_id"] + ".json")).write_text(__import__("json").dumps(record), encoding="utf-8")
+
+    main([str(tmp_path)])
+    out = capsys.readouterr().out
+
+    assert "37.617" in out
+    assert "37.617000000000004" not in out
