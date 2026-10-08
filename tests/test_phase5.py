@@ -418,17 +418,54 @@ def test_switch_does_not_hold_the_lock_while_the_new_agent_works(project, monkey
     assert not project.run_lock_file.exists()
 
 
-def test_a_briefly_busy_lock_is_waited_for_not_refused(project):
-    """Two short writes that overlap should queue, not fail."""
+def test_a_briefly_busy_lock_is_waited_for_not_refused(project, monkeypatch):
+    """Windows access-denied on an existing lock should queue, not fail."""
+    import errno
     import threading
+    import time
 
     from agent_handoff.cli import LOCK_WAIT_SECONDS
 
     assert LOCK_WAIT_SECONDS > 0
     holder = lock_mod.Lock(project.lock_file, "brief-writer")
     holder.acquire()
-    threading.Timer(0.3, holder.release).start()
-    assert main(["event", "file_modified", "path=auth.py"]) == 0
+    collision_seen = threading.Event()
+    original_open = lock_mod.os.open
+
+    def windows_style_open(path, flags, *args, **kwargs):
+        same_lock = str(path) == str(project.lock_file)
+        exclusive_create = flags & os.O_EXCL
+        if same_lock and exclusive_create and project.lock_file.exists():
+            collision_seen.set()
+            raise PermissionError(errno.EACCES, "Permission denied", str(path))
+        return original_open(path, flags, *args, **kwargs)
+
+    def release_after_collision():
+        assert collision_seen.wait(timeout=2)
+        time.sleep(0.1)
+        holder.release()
+
+    releaser = threading.Thread(target=release_after_collision)
+    releaser.start()
+    monkeypatch.setattr(lock_mod.os, "open", windows_style_open)
+    try:
+        assert main(["event", "file_modified", "path=auth.py"]) == 0
+    finally:
+        holder.release()
+        releaser.join(timeout=2)
+    assert collision_seen.is_set()
+
+
+def test_lock_propagates_permission_error_when_lock_path_is_absent(project, monkeypatch):
+    """Do not mistake a real ACL failure for another process holding a lock."""
+    import errno
+
+    def denied_open(path, flags, *args, **kwargs):
+        raise PermissionError(errno.EACCES, "Permission denied", str(path))
+
+    monkeypatch.setattr(lock_mod.os, "open", denied_open)
+    with pytest.raises(PermissionError, match="Permission denied"):
+        lock_mod.Lock(project.lock_file, "denied")._write()
 
 
 def test_a_lock_held_for_a_long_time_is_still_reported(project, capsys):

@@ -131,6 +131,13 @@ class Lock:
             fd = os.open(str(self.path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
         except FileExistsError:
             return False
+        except PermissionError:
+            # Windows may report an exclusive-create collision as access
+            # denied. Only treat it as contention when the lock is present;
+            # genuine directory/ACL errors must still reach the caller.
+            if self.path.exists():
+                return False
+            raise
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
             handle.write(json.dumps(self.info.to_dict(), ensure_ascii=False) + "\n")
             handle.flush()

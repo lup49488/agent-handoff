@@ -13,6 +13,10 @@ is still below 1.0, so the interface may still change.
 
 ### Fixed
 
+- On Windows, an exclusive lock-file create can report an existing lock as
+  `PermissionError` instead of `FileExistsError`. The lock now treats that as
+  contention only when the lock path exists, preserving real permission errors.
+
 - Codex's pre-launch skill check searched every rendered message for a skill's
   bare name, so unrelated session-context mentions could block a trial. It now
   checks for the exact name-and-description entry in developer skill context,
