@@ -137,6 +137,7 @@ def test_launched_trial_records_its_cohort_claim(tmp_path, monkeypatch):
         }
 
     monkeypatch.setattr(runner, "_launch", fake_launch)
+    monkeypatch.setattr(runner, "_preflight", lambda target, project: "passed")
     record = runner.run_trial(
         row["task"], row["snapshot"], row["arm"], "codex", row["replicate"], tmp_path / "trial",
         model="test-model", target_version="test-version", launch=True, cohort_plan=plan_path,
@@ -232,6 +233,7 @@ def test_a_launch_that_raises_returns_its_row_to_pending(tmp_path, monkeypatch):
         raise RuntimeError("target harness failed")
 
     monkeypatch.setattr(runner, "_launch", broken_launch)
+    monkeypatch.setattr(runner, "_preflight", lambda target, project: "passed")
     with pytest.raises(RuntimeError):
         runner.run_trial(
             row["task"], row["snapshot"], row["arm"], "codex", row["replicate"], tmp_path / "trial",
@@ -248,6 +250,7 @@ def test_an_invalid_trial_ends_its_row_as_invalid_and_the_cell_is_reported_short
     plan_path = tmp_path / "plan.json"
     row = write_cohort_plan(plan_path, 17, 1, ("A",))["rows"][0]
     monkeypatch.setattr(runner, "_launch", lambda *a: {"invalid_reason": "target_not_started"})
+    monkeypatch.setattr(runner, "_preflight", lambda target, project: "passed")
 
     runner.run_trial(
         row["task"], row["snapshot"], row["arm"], "codex", row["replicate"], tmp_path / "trial",

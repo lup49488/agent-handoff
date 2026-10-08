@@ -13,6 +13,13 @@ is still below 1.0, so the interface may still change.
 
 ### Fixed
 
+- Codex's pre-launch skill check searched every rendered message for a skill's
+  bare name, so unrelated session-context mentions could block a trial. It now
+  checks for the exact name-and-description entry in developer skill context,
+  treats unknown output or unreadable metadata as unproven, and refuses a
+  Codex launch unless the check passes. A no-model synthetic-skill probe
+  verified that the installed CLI hides the catalogue entry when disabled.
+
 - A Claude Code target could not run a single command. The adapter's
   `acceptEdits` mode refuses every shell command in print mode, so a Claude
   trial could not run the acceptance check it was told to pass — one

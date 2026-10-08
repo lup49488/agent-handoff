@@ -99,16 +99,104 @@ def _isolation_args(target: str) -> List[str]:
     ]
 
 
-def _user_skill_names() -> List[str]:
+def _user_skill_signatures() -> Optional[List[Tuple[str, str]]]:
+    """Return user skill names and descriptions, or None if metadata is unreadable."""
     skills_dir = _codex_home() / "skills"
     if not skills_dir.is_dir():
         return []
-    return sorted(p.name for p in skills_dir.iterdir() if p.is_dir() and not p.name.startswith("."))
+    signatures = []
+    for directory in sorted(skills_dir.iterdir()):
+        if not directory.is_dir() or directory.name.startswith("."):
+            continue
+        skill_file = directory / "SKILL.md"
+        if not skill_file.is_file():
+            continue
+        try:
+            source = skill_file.read_text(encoding="utf-8")
+        except (OSError, UnicodeError):
+            return None
+        frontmatter = re.match(r"\A---\s*\r?\n(.*?)\r?\n---\s*(?:\r?\n|$)", source, re.DOTALL)
+        if frontmatter is None:
+            return None
+        fields = _skill_frontmatter_fields(frontmatter.group(1))
+        name, description = fields.get("name"), fields.get("description")
+        if not name or not description:
+            return None
+        signatures.append((name, description))
+    return signatures
 
 
-def _preflight_verdict(rendered: str, skill_names: Sequence[str]) -> str:
-    """`failed` if a disabled skill still reaches the model's input."""
-    return "failed" if any(name in rendered for name in skill_names) else "passed"
+def _skill_frontmatter_fields(frontmatter: str) -> Dict[str, str]:
+    """Read the two scalar YAML fields Codex uses to list a skill."""
+    lines = frontmatter.splitlines()
+    fields: Dict[str, str] = {}
+    index = 0
+    while index < len(lines):
+        match = re.match(r"^(name|description):\s*(.*?)\s*$", lines[index])
+        if match is None:
+            index += 1
+            continue
+        key, value = match.groups()
+        if value in ("|", ">", "|-", ">-"):
+            parts = []
+            index += 1
+            while index < len(lines) and (not lines[index].strip() or lines[index][0].isspace()):
+                if lines[index].strip():
+                    parts.append(lines[index].strip())
+                index += 1
+            fields[key] = " ".join(parts)
+            continue
+        if len(value) >= 2 and value[0] == value[-1] == "'":
+            value = value[1:-1].replace("''", "'")
+        elif len(value) >= 2 and value[0] == value[-1] == '"':
+            try:
+                value = json.loads(value)
+            except json.JSONDecodeError:
+                return {}
+        fields[key] = value
+        index += 1
+    return fields
+
+
+def _preflight_verdict(rendered: str, skill_signatures: Optional[Sequence[Tuple[str, str]]]) -> str:
+    """Check for a disabled skill's exact name/description catalogue entry.
+
+    The debug command includes unrelated session context, so a bare name match
+    is not evidence that Codex made a skill available to the target.
+    """
+    if skill_signatures is None:
+        return "unavailable"
+    try:
+        messages = json.loads(rendered)
+    except (TypeError, json.JSONDecodeError):
+        return "unavailable"
+    if not isinstance(messages, list):
+        return "unavailable"
+
+    developer_text = []
+    for message in messages:
+        if not isinstance(message, dict) or message.get("role") != "developer":
+            continue
+        content = message.get("content")
+        if not isinstance(content, list):
+            return "unavailable"
+        for block in content:
+            if not isinstance(block, dict) or block.get("type") != "input_text":
+                continue
+            text = block.get("text")
+            if not isinstance(text, str):
+                return "unavailable"
+            developer_text.append(" ".join(text.casefold().split()))
+
+    if skill_signatures and not developer_text:
+        return "unavailable"
+    rendered_developer = " ".join(developer_text)
+    for name, description in skill_signatures:
+        name = " ".join(name.casefold().split())
+        description = " ".join(description.casefold().split())
+        if name and description and name in rendered_developer and description in rendered_developer:
+            return "failed"
+    return "passed"
 
 
 def _preflight(target: str, project: Path) -> str:
@@ -131,7 +219,7 @@ def _preflight(target: str, project: Path) -> str:
         ).stdout
     except (OSError, subprocess.SubprocessError):
         return "unavailable"
-    return _preflight_verdict(rendered, _user_skill_names())
+    return _preflight_verdict(rendered, _user_skill_signatures())
 
 
 def _claude_allowed_tools() -> List[str]:
@@ -498,11 +586,11 @@ def run_trial(
     if not _package_stayed_out_of_git(trial.project):
         raise RuntimeError("the handoff package entered the trial repository")
     preflight = _preflight(target, trial.project) if launch else "not_run"
-    if preflight == "failed":
+    if launch and target == "codex" and preflight != "passed":
         if workspace is not None:
             _remove_tree(workspace)
         raise RuntimeError(
-            "isolation preflight failed: a disabled user skill still reaches the model's input"
+            "isolation preflight did not prove user skills are disabled: " + preflight
         )
 
     baseline_head = _git_head(trial.project)

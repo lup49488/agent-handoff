@@ -99,8 +99,10 @@ named after the arm. A launched trial therefore:
   disabled for that one invocation (skills Codex ships in `skills/.system`
   stay; your configuration on disk is not changed);
 - for Codex, renders the model's input with `codex debug prompt-input` before
-  launching — no model call — and refuses to launch if a disabled skill still
-  appears in it;
+  launching — no model call — and checks the developer skill catalogue for the
+  exact name-and-description signature of each disabled user skill. A bare
+  name mention in session context is not treated as a loaded skill; an unknown
+  output shape or unreadable skill metadata refuses the launch as unproven;
 - for Claude Code, runs with `--disable-slash-commands`, which disables all
   skills, and logs in stream JSON so the scan can see every tool call. Claude
   Code cannot render its input without a model call, so the check Codex gets

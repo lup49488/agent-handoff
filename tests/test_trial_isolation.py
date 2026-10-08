@@ -107,6 +107,7 @@ def test_ordinary_work_on_the_task_is_not_contamination(tmp_path):
 def fake_target(monkeypatch, script):
     """Launch a short Python program in place of a coding agent."""
     monkeypatch.setattr(runner.registry, "get", lambda target, project: None)
+    monkeypatch.setattr(runner, "_preflight", lambda target, project: "passed")
     monkeypatch.setattr(
         runner, "_target_argv", lambda adapter, prompt, target, model, effort: [sys.executable, "-c", script]
     )
@@ -189,11 +190,51 @@ def test_contamination_and_its_evidence_travel_together(tmp_path):
 # -- the preflight before a launch -------------------------------------------
 
 
-def test_preflight_fails_when_a_disabled_skill_still_reaches_the_model():
-    rendered = '{"skills": [{"name": "agent-handoff", "description": "preserve work"}]}'
+def test_user_skill_signatures_are_read_from_skill_frontmatter(tmp_path, monkeypatch):
+    home = tmp_path / "codex-home"
+    skill = home / "skills" / "proof-skill"
+    skill.mkdir(parents=True)
+    (skill / "SKILL.md").write_text(
+        "---\nname: proof-skill\ndescription: >-\n  A unique test skill description\n  on multiple lines.\n---\n\nInstructions.\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("CODEX_HOME", str(home))
 
-    assert runner._preflight_verdict(rendered, ["agent-handoff", "hatch-pet"]) == "failed"
-    assert runner._preflight_verdict('{"skills": []}', ["agent-handoff", "hatch-pet"]) == "passed"
+    assert runner._user_skill_signatures() == [
+        ("proof-skill", "A unique test skill description on multiple lines.")
+    ]
+
+
+def test_preflight_requires_exact_skill_catalog_entry_not_a_name_mention():
+    signatures = [("agent-handoff", "preserve substantive work in a local Git repository")]
+    rendered = json.dumps([
+        {"role": "developer", "content": [{
+            "type": "input_text", "text": "The current task mentions agent-handoff by name."
+        }]},
+        {"role": "user", "content": [{
+            "type": "input_text",
+            "text": "agent-handoff: preserve substantive work in a local Git repository",
+        }]},
+    ])
+
+    assert runner._preflight_verdict(rendered, signatures) == "passed"
+
+
+def test_preflight_fails_when_disabled_skill_catalog_entry_is_rendered():
+    signatures = [("proof-skill", "A unique test skill description on multiple lines.")]
+    rendered = json.dumps([
+        {"role": "developer", "content": [{
+            "type": "input_text",
+            "text": "Available skill: proof-skill — A unique test skill description on multiple lines.",
+        }]},
+    ])
+
+    assert runner._preflight_verdict(rendered, signatures) == "failed"
+
+
+@pytest.mark.parametrize("rendered,signatures", [("not-json", []), ("[]", None)])
+def test_preflight_is_unavailable_when_it_cannot_prove_the_catalog(rendered, signatures):
+    assert runner._preflight_verdict(rendered, signatures) == "unavailable"
 
 
 def test_preflight_is_unavailable_without_codex_rather_than_failed(tmp_path):
@@ -202,11 +243,12 @@ def test_preflight_is_unavailable_without_codex_rather_than_failed(tmp_path):
     assert runner._preflight("claude-code", tmp_path) == "unavailable"
 
 
-def test_a_failed_preflight_refuses_to_launch(tmp_path, monkeypatch):
+@pytest.mark.parametrize("verdict", ["failed", "unavailable"])
+def test_an_unproven_codex_preflight_refuses_to_launch(tmp_path, monkeypatch, verdict):
     fake_target(monkeypatch, "print('should never run')")
-    monkeypatch.setattr(runner, "_preflight", lambda target, project: "failed")
+    monkeypatch.setattr(runner, "_preflight", lambda target, project: verdict)
 
-    with pytest.raises(RuntimeError, match="isolation preflight failed"):
+    with pytest.raises(RuntimeError, match="isolation preflight did not prove user skills are disabled"):
         launch(tmp_path)
     assert not (tmp_path / ".trials" / "A-60-baseline-r01").exists()
 
