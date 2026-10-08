@@ -13,6 +13,15 @@ is still below 1.0, so the interface may still change.
 
 ### Fixed
 
+- Claude Code trials were not auditable. Print mode logs only the final
+  answer, so a skill read or a `handoff` command would have left no trace for
+  the contamination scan. Targets now log stream JSON; the session's first
+  event is checked for loaded skills, and the scan recognises Claude Code's
+  memory paths as well as Codex's. Verified against Claude Code 2.1.287:
+  `--disable-slash-commands` takes the session from 35 skills to none, and one
+  real A/60 Baseline trial made eight tool calls, all inside its own neutral
+  workspace, with no skill, memory or `handoff` reference in its log.
+
 - The Baseline arm was never a no-handoff condition. Targets ran with their
   developer's own Codex setup, and three things reached them: a globally
   installed agent-handoff skill, which every Baseline agent from r02 on read

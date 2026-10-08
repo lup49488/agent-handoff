@@ -48,8 +48,13 @@ def test_codex_runs_without_memories_or_any_user_installed_skill(tmp_path, monke
     assert ".system" not in skills
 
 
-def test_claude_code_runs_with_skills_disabled():
-    assert runner._isolation_args("claude-code") == ["--disable-slash-commands"]
+def test_claude_code_runs_with_skills_disabled_and_a_log_the_scan_can_read():
+    args = runner._isolation_args("claude-code")
+
+    assert "--disable-slash-commands" in args
+    # Plain print mode logs only the final answer; the scan needs the tool calls.
+    assert args[args.index("--output-format") + 1] == "stream-json"
+    assert "--verbose" in args
 
 
 def test_isolation_arguments_go_before_the_prompt(tmp_path, monkeypatch):
@@ -204,3 +209,57 @@ def test_a_failed_preflight_refuses_to_launch(tmp_path, monkeypatch):
     with pytest.raises(RuntimeError, match="isolation preflight failed"):
         launch(tmp_path)
     assert not (tmp_path / ".trials" / "A-60-baseline-r01").exists()
+
+
+# -- Claude Code's own log ---------------------------------------------------
+
+CLAUDE_MEMORY = r"C:\Users\u\.claude\projects\D--Files-Programs-agent-handoff\memory\MEMORY.md"
+
+
+def init_event(**fields):
+    """The first stream-JSON event, shaped as Claude Code 2.1.287 emits it."""
+    event = {
+        "type": "system",
+        "subtype": "init",
+        "cwd": r"C:\Temp\tmpabc\work\project",
+        "plugins": [{"name": "cc-plugin-agents-md", "path": "builtin"}],
+        "memory_paths": {"auto": "C:\\Users\\u\\.claude\\projects\\C--Temp-tmpabc\\memory\\"},
+        "skills": [],
+        "slash_commands": [],
+    }
+    event.update(fields)
+    return json.dumps(event)
+
+
+def tool_use(name, **arguments):
+    return json.dumps({"type": "assistant", "message": {"content": [
+        {"type": "tool_use", "name": name, "input": arguments},
+    ]}})
+
+
+def test_a_claude_session_that_loaded_skills_is_contaminated(tmp_path):
+    stdout = init_event(skills=["anthropic-skills:docx", "agent-handoff"])
+
+    assert runner._contamination("baseline", tmp_path, stdout, "") == [
+        "loaded skills: anthropic-skills:docx, agent-handoff"
+    ]
+
+
+def test_a_claude_session_with_no_skills_and_its_own_empty_memory_is_clean(tmp_path):
+    """The init event names the memory directory; naming it is not reading it."""
+    assert runner._contamination("baseline", tmp_path, init_event(), "") == []
+
+
+def test_reading_another_projects_claude_memory_is_contamination(tmp_path):
+    stdout = init_event() + "\n" + tool_use("Read", file_path=CLAUDE_MEMORY)
+
+    assert runner._contamination("handoff", tmp_path, stdout, "") == [
+        "read the agent's persistent memories"
+    ]
+
+
+def test_a_claude_baseline_running_handoff_through_bash_is_contaminated(tmp_path):
+    stdout = init_event() + "\n" + tool_use("Bash", command='handoff init "implement slugify"')
+
+    assert runner._contamination("baseline", tmp_path, stdout, "") == ["ran the handoff CLI"]
+

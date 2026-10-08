@@ -78,7 +78,11 @@ def _isolation_args(target: str) -> List[str]:
     contamination scan exists to catch.
     """
     if target != "codex":
-        return ["--disable-slash-commands"]
+        # Stream JSON is what makes the contamination scan possible here: plain
+        # print mode logs only the final answer, so a skill read or a `handoff`
+        # command would leave no trace. Its first event also lists the skills
+        # the session loaded, which is checked after the run.
+        return ["--disable-slash-commands", "--output-format", "stream-json", "--verbose"]
     skills_dir = _codex_home() / "skills"
     skills = sorted(
         path / "SKILL.md"
@@ -144,7 +148,12 @@ def _target_argv(adapter, prompt: str, target: str, model: str, effort: str) -> 
 #: the package; the Baseline arm is not, and neither arm should read the
 #: handoff skill or the agent's persistent memories.
 _SKILL_READ = re.compile(r"skills[\\/]+agent-handoff", re.IGNORECASE)
-_MEMORY_READ = re.compile(r"memories[\\/]+[\w.-]*\.md", re.IGNORECASE)
+# Codex keeps memories in `memories/*.md`; Claude Code in
+# `projects/<working directory>/memory/*.md`.
+_MEMORY_READ = re.compile(
+    r"memories[\\/]+[\w.-]*\.md|projects[\\/]+[^\\/\"']+[\\/]+memory[\\/]+[\w.-]*\.md",
+    re.IGNORECASE,
+)
 _HANDOFF_COMMAND = re.compile(
     r"(?:^|[\s;'\"&|(])(?:handoff(?:\.exe)?|-m\s+agent_handoff)\s+"
     r"(?:--version|init|status|verify|checkpoint|tests|pack|snapshot|event|command|"
@@ -153,10 +162,32 @@ _HANDOFF_COMMAND = re.compile(
 )
 
 
+def _skills_loaded(stdout: str) -> List[str]:
+    """Skills a Claude Code session reported loading, from its stream-JSON log.
+
+    Claude Code has no way to render a session's input without a model call,
+    so the check that Codex makes before launching is made here afterwards,
+    from the session's own first event.
+    """
+    for line in (stdout or "").splitlines():
+        if not line.startswith("{"):
+            continue
+        try:
+            event = json.loads(line)
+        except ValueError:
+            continue
+        if event.get("type") == "system" and event.get("subtype") == "init":
+            return [str(skill) for skill in event.get("skills") or []]
+    return []
+
+
 def _contamination(arm: str, project: Path, stdout: str, stderr: str) -> List[str]:
     """Reasons this trial's target was not in the condition its arm names."""
     text = (stdout or "") + "\n" + (stderr or "")
     found = []
+    loaded = _skills_loaded(stdout)
+    if loaded:
+        found.append("loaded skills: " + ", ".join(loaded[:5]) + ("…" if len(loaded) > 5 else ""))
     if _SKILL_READ.search(text):
         found.append("read the agent-handoff skill")
     if _MEMORY_READ.search(text):

@@ -102,8 +102,12 @@ named after the arm. A launched trial therefore:
   launching — no model call — and refuses to launch if a disabled skill still
   appears in it;
 - for Claude Code, runs with `--disable-slash-commands`, which disables all
-  skills. Its user memory is not switched off, and this path has not been
-  verified against a real Claude Code run;
+  skills, and logs in stream JSON so the scan can see every tool call. Claude
+  Code cannot render its input without a model call, so the check Codex gets
+  before launching is made afterwards from the session's own first event: a
+  session that loaded any skill is contaminated. Its auto-memory is keyed by
+  working directory, so the neutral directory gives each trial an empty one.
+  Plugins marked `builtin` load either way; they ship with Claude Code;
 - after the run, scans the target's logs. Reading the handoff skill or the
   agent's memories, in either arm, or using the `handoff` CLI or creating a
   package in the Baseline arm, makes the trial `contaminated`: it is excluded,
