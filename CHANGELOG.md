@@ -13,6 +13,17 @@ is still below 1.0, so the interface may still change.
 
 ### Fixed
 
+- A Claude Code target could not run a single command. The adapter's
+  `acceptEdits` mode refuses every shell command in print mode, so a Claude
+  trial could not run the acceptance check it was told to pass — one
+  verification trial was refused four times and finished by editing blind —
+  nor the `handoff checkpoint` its package asks for, while a Codex target
+  could do both. Benchmark launches now admit exactly `python acceptance.py`,
+  read-only Git, and the recording `handoff` subcommands, for both arms. A
+  probe against Claude Code 2.1.287 ran each of those and refused
+  `python -c` and `handoff run`; a real trial then ran its own acceptance
+  check with no refusals. The product adapter is unchanged.
+
 - Claude Code trials were not auditable. Print mode logs only the final
   answer, so a skill read or a `handoff` command would have left no trace for
   the contamination scan. Targets now log stream JSON; the session's first

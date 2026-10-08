@@ -134,13 +134,37 @@ def _preflight(target: str, project: Path) -> str:
     return _preflight_verdict(rendered, _user_skill_names())
 
 
+def _claude_allowed_tools() -> List[str]:
+    """The commands a Claude Code target may run, and nothing wider.
+
+    Print mode with `acceptEdits` refuses every shell command, so a Claude
+    target could not run the acceptance check it was told to pass, nor the
+    `handoff checkpoint` the package tells it to run, while Codex could do
+    both. This admits exactly what the tasks need: the fixture's check,
+    read-only Git, and the handoff subcommands that only record. `python`
+    in general is not admitted, since that is arbitrary code; nor are
+    `handoff run` or `switch`, which launch other agents. Verified against
+    Claude Code 2.1.287 by a probe: the listed commands ran, `python -c` and
+    `handoff run` were refused. Both arms get the same list, so the arms
+    still differ only by the package.
+    """
+    commands = ["python acceptance.py", "git status:*", "git diff:*", "git log:*", "handoff --version"]
+    commands += ["handoff %s:*" % sub for sub in ("status", "verify", "checkpoint", "tests", "pack")]
+    # Claude Code on Windows has a PowerShell tool beside Bash; the same rules
+    # cover both. Only the Bash rules were exercised by the probe.
+    return ["%s(%s)" % (tool, command) for tool in ("Bash", "PowerShell") for command in commands]
+
+
 def _target_argv(adapter, prompt: str, target: str, model: str, effort: str) -> list:
     argv = adapter.exec_argv(prompt)
     if target == "codex":
         pinned = ["--model", model, "-c", 'model_reasoning_effort="' + effort + '"']
-    else:
-        pinned = ["--model", model, "--effort", effort]
-    return argv[:-1] + pinned + _isolation_args(target) + argv[-1:]
+        return argv[:-1] + pinned + _isolation_args(target) + argv[-1:]
+    pinned = ["--model", model, "--effort", effort]
+    # `--allowedTools` takes every following word until the next option, so it
+    # goes before `--model`; placed last it would swallow the prompt.
+    allowed = ["--allowedTools", *_claude_allowed_tools()]
+    return argv[:-1] + allowed + pinned + _isolation_args(target) + argv[-1:]
 
 
 #: What a target's logs show when something outside the arm's condition
@@ -511,6 +535,7 @@ def run_trial(
         "isolation": {
             "workspace": "neutral-temporary" if launch else "destination",
             "agent_args": _isolation_args(target) if launch else [],
+            "allowed_tools": _claude_allowed_tools() if launch and target == "claude-code" else [],
             "preflight": preflight,
         },
         "contamination": [],

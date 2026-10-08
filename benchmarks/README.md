@@ -108,6 +108,12 @@ named after the arm. A launched trial therefore:
   session that loaded any skill is contaminated. Its auto-memory is keyed by
   working directory, so the neutral directory gives each trial an empty one.
   Plugins marked `builtin` load either way; they ship with Claude Code;
+- for Claude Code, admits exactly the commands a trial needs: the fixture's
+  `python acceptance.py`, read-only Git, and the `handoff` subcommands that only
+  record. Without this, print mode refused every command — a Claude target
+  could neither run the check it was told to pass nor the `handoff checkpoint`
+  its package asks for, while Codex could do both. `python` in general and
+  `handoff run`/`switch` stay refused. Both arms get the same list;
 - after the run, scans the target's logs. Reading the handoff skill or the
   agent's memories, in either arm, or using the `handoff` CLI or creating a
   package in the Baseline arm, makes the trial `contaminated`: it is excluded,

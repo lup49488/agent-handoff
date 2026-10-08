@@ -211,6 +211,53 @@ def test_a_failed_preflight_refuses_to_launch(tmp_path, monkeypatch):
     assert not (tmp_path / ".trials" / "A-60-baseline-r01").exists()
 
 
+# -- what a Claude Code target may run ---------------------------------------
+
+
+class ClaudeAdapter:
+    def exec_argv(self, prompt):
+        return ["claude", "-p", "--permission-mode", "acceptEdits", prompt]
+
+
+def test_claude_may_run_the_check_and_the_recording_handoff_commands():
+    allowed = runner._claude_allowed_tools()
+
+    for command in ("python acceptance.py", "git status:*", "handoff checkpoint:*", "handoff tests:*"):
+        assert "Bash(%s)" % command in allowed
+
+
+def test_claude_may_not_run_arbitrary_code_or_launch_other_agents():
+    allowed = " ".join(runner._claude_allowed_tools())
+
+    assert "python:*" not in allowed and "python *" not in allowed
+    for launcher in ("handoff run", "handoff switch", "handoff recover"):
+        assert launcher not in allowed
+
+
+def test_the_allow_list_cannot_swallow_the_prompt():
+    """`--allowedTools` takes words until the next option; placed last it ate the prompt."""
+    argv = runner._target_argv(ClaudeAdapter(), "the task", "claude-code", "m", "medium")
+    start = argv.index("--allowedTools")
+    end = next(i for i in range(start + 1, len(argv)) if argv[i].startswith("--"))
+
+    assert argv[-1] == "the task"
+    assert "the task" not in argv[start + 1:end]
+    assert argv[end] == "--model"
+
+
+def test_both_arms_are_launched_with_the_same_permissions(tmp_path, monkeypatch):
+    """The arms must differ only by the package, never by what they may run."""
+    fake_target(monkeypatch, "print('done')")
+
+    lists = [
+        runner.run_trial("A", "60", arm, "claude-code", 1, tmp_path / arm,
+                         model="m", target_version="v", launch=True, wall_seconds=60)["isolation"]["allowed_tools"]
+        for arm in ("baseline", "handoff")
+    ]
+
+    assert lists[0] == lists[1] == runner._claude_allowed_tools()
+
+
 # -- Claude Code's own log ---------------------------------------------------
 
 CLAUDE_MEMORY = r"C:\Users\u\.claude\projects\D--Files-Programs-agent-handoff\memory\MEMORY.md"
