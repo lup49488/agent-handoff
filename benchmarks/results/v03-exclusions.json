@@ -1,0 +1,29 @@
+{
+  "note": "Every v0.3 trial is excluded. Reasons were produced by benchmarks/run_trial.py::_contamination re-run over each trial's own logs, and by counting provider disconnects in them.",
+  "exclusions": {
+    "A-60-baseline-r01": "provider outage: 12 stream disconnects, 18 reconnects in its log",
+    "A-60-baseline-r02": "contaminated: read the agent-handoff skill; read the agent's persistent memories; ran the handoff CLI",
+    "A-60-handoff-r01": "provider outage: 12 stream disconnects, 17 reconnects in its log",
+    "A-60-handoff-r02": "contaminated: read the agent-handoff skill",
+    "B-60-baseline-r01": "provider outage: 12 stream disconnects, 18 reconnects in its log",
+    "B-60-baseline-r02": "contaminated: read the agent-handoff skill; ran the handoff CLI",
+    "B-60-baseline-r03": "contaminated: read the agent-handoff skill; read the agent's persistent memories; ran the handoff CLI",
+    "B-60-baseline-r04": "contaminated: read the agent-handoff skill; read the agent's persistent memories; ran the handoff CLI",
+    "B-60-baseline-r05": "contaminated: read the agent-handoff skill; read the agent's persistent memories; ran the handoff CLI",
+    "B-60-baseline-r06": "contaminated: read the agent-handoff skill; read the agent's persistent memories; ran the handoff CLI",
+    "B-60-baseline-r07": "contaminated: read the agent-handoff skill; read the agent's persistent memories; ran the handoff CLI",
+    "B-60-baseline-r08": "contaminated: read the agent-handoff skill; read the agent's persistent memories; ran the handoff CLI",
+    "B-60-baseline-r09": "contaminated: read the agent-handoff skill; ran the handoff CLI",
+    "B-60-handoff-r01": "contaminated: read the agent-handoff skill; read the agent's persistent memories",
+    "B-60-handoff-r02": "contaminated: read the agent-handoff skill; read the agent's persistent memories",
+    "B-60-handoff-r03": "contaminated: read the agent-handoff skill; read the agent's persistent memories",
+    "B-60-handoff-r04": "contaminated: read the agent-handoff skill; read the agent's persistent memories",
+    "B-60-handoff-r05": "contaminated: read the agent-handoff skill; read the agent's persistent memories",
+    "B-60-handoff-r06": "contaminated: read the agent-handoff skill; read the agent's persistent memories",
+    "B-60-handoff-r07": "contaminated: read the agent-handoff skill; read the agent's persistent memories",
+    "B-60-handoff-r08": "contaminated: read the agent-handoff skill; read the agent's persistent memories",
+    "B-60-handoff-r09": "contaminated: read the agent-handoff skill; read the agent's persistent memories",
+    "C-60-baseline-r02": "contaminated: read the agent-handoff skill; read the agent's persistent memories; ran the handoff CLI",
+    "C-60-handoff-r02": "contaminated: read the agent-handoff skill; read the agent's persistent memories"
+  }
+}

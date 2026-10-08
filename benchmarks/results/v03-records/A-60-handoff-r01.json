@@ -1,0 +1,57 @@
+{
+  "schema_version": 3,
+  "trial_id": "A-60-handoff-r01",
+  "task": "A",
+  "snapshot": "60",
+  "arm": "handoff",
+  "replicate": 1,
+  "source_commit": "2fb5ad0",
+  "handoff_version": "0.9.2",
+  "target": {
+    "agent": "codex",
+    "version": "codex-cli 0.160.0",
+    "model": "gpt-5.6-terra",
+    "effort": "medium"
+  },
+  "budget": {
+    "wall_seconds": 600
+  },
+  "fixture": {
+    "task": "A",
+    "snapshot": "60",
+    "snapshot_sha256": "17c2b4e5ac1bd2f42dbda6358d1f83930ff7ed79b535dcd76d8d6921ca03d16d",
+    "evaluator_sha256": "781090d6a4710e0964a54f8e06dfe15f9772738fa386a03d9c768c735bcae405",
+    "progress_evaluator_sha256": "972be4a90a3969f8c7ff78833edc760f8f0eced67b308622f3455748be027387",
+    "initial_head": "69dd8dac95b3d4bc85088e111daecffd0b4ddf45"
+  },
+  "environment": {
+    "platform": "Windows-11-10.0.26300-SP0",
+    "python": "3.12.0"
+  },
+  "started_at": "2026-10-04T18:50:29.256135+00:00",
+  "accepted": true,
+  "completed": false,
+  "budget_exceeded": true,
+  "first_verified_progress_seconds": 0.0,
+  "completion_seconds": null,
+  "initial_checks": {
+    "progress_passed": true,
+    "completion_passed": false
+  },
+  "agent_exit_seconds": 663.937,
+  "target_exit_code": 1,
+  "target_turns": null,
+  "provider_tokens": null,
+  "scope_violations": [],
+  "invalid_reason": null,
+  "schedule": {
+    "seed": 20261004,
+    "planned_arm_order": [
+      "baseline",
+      "handoff"
+    ],
+    "planned_position": 2,
+    "cohort_plan": "v03-instrumentation.json",
+    "cohort_position": 2
+  }
+}
