@@ -46,17 +46,40 @@ def arm_order(task: str, snapshot: str, replicate: int, seed: int) -> Tuple[str,
     return tuple(arms)
 
 
+def balanced_first_arms(
+    task: str,
+    snapshot: str,
+    seed: int,
+    replicates: int,
+    replicate_start: int,
+) -> Dict[int, str]:
+    """Deterministically allocate first position as evenly as possible."""
+    rng = random.Random(
+        "%d|%s|%s|balanced-first-arm|%d|%d"
+        % (seed, task, snapshot, replicate_start, replicates)
+    )
+    first_arms = list(ARMS) * (replicates // 2)
+    if replicates % 2:
+        first_arms.append(rng.choice(ARMS))
+    rng.shuffle(first_arms)
+    return dict(zip(range(replicate_start, replicate_start + replicates), first_arms))
+
+
 def plan(
     seed: int,
     replicates: int,
     tasks: Sequence[str] = TASKS,
     snapshots: Sequence[str] = SNAPSHOTS,
+    replicate_start: int = 1,
+    balance_arm_order: bool = False,
 ) -> List[dict]:
     """Every trial of a cohort, in the order it should be run."""
     tasks = tuple(tasks)
     snapshots = tuple(snapshots)
     if replicates < 1:
         raise ValueError("replicates must be positive")
+    if replicate_start < 1:
+        raise ValueError("replicate_start must be positive")
     if not tasks or any(task not in TASKS for task in tasks) or len(set(tasks)) != len(tasks):
         raise ValueError("tasks must be non-empty, unique, and valid")
     if not snapshots or any(snapshot not in SNAPSHOTS for snapshot in snapshots) or len(set(snapshots)) != len(snapshots):
@@ -64,8 +87,17 @@ def plan(
     rows = []
     for task in tasks:
         for snapshot in snapshots:
-            for replicate in range(1, replicates + 1):
-                for position, arm in enumerate(arm_order(task, snapshot, replicate, seed), 1):
+            balanced = (
+                balanced_first_arms(task, snapshot, seed, replicates, replicate_start)
+                if balance_arm_order else None
+            )
+            for replicate in range(replicate_start, replicate_start + replicates):
+                if balanced is None:
+                    arms = arm_order(task, snapshot, replicate, seed)
+                else:
+                    first = balanced[replicate]
+                    arms = (first, next(arm for arm in ARMS if arm != first))
+                for position, arm in enumerate(arms, 1):
                     rows.append({
                         "task": task,
                         "snapshot": snapshot,
@@ -83,19 +115,23 @@ def write_cohort_plan(
     replicates: int,
     tasks: Sequence[str] = TASKS,
     snapshots: Sequence[str] = SNAPSHOTS,
+    replicate_start: int = 1,
+    balance_arm_order: bool = False,
 ) -> dict:
     """Write an immutable-before-launch plan whose rows are claimed in order."""
     if path.exists():
         raise FileExistsError("cohort plan already exists: " + str(path))
     tasks = tuple(tasks)
     snapshots = tuple(snapshots)
-    rows = plan(seed, replicates, tasks, snapshots)
+    rows = plan(seed, replicates, tasks, snapshots, replicate_start, balance_arm_order)
     for row in rows:
         row["state"] = "pending"
     data = {
         "schema_version": 1,
         "seed": seed,
         "replicates": replicates,
+        "replicate_start": replicate_start,
+        "balance_arm_order": balance_arm_order,
         "tasks": list(tasks),
         "snapshots": list(snapshots),
         "rows": rows,
@@ -213,6 +249,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--seed", type=int, help="pre-register this with the plan")
     parser.add_argument("--replicates", type=int, default=3, help="accepted replicates per cell")
+    parser.add_argument("--replicate-start", type=int, default=1, help="first replicate number; use a new number for a fresh addendum cohort")
+    parser.add_argument("--balance-arm-order", action="store_true", help="balance first-position arms across replicates within each task/snapshot")
     parser.add_argument("--task", action="append", choices=TASKS, help="default: every task")
     parser.add_argument("--snapshot", action="append", choices=SNAPSHOTS, help="repeat to select snapshots; default: every snapshot")
     parser.add_argument("--output", type=Path, help="write a stateful cohort plan")
@@ -241,18 +279,24 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if args.seed is None:
         parser.error("--seed is required to write or print a plan")
-    if args.replicates < 1:
-        parser.error("replicates must be positive")
+    if args.replicates < 1 or args.replicate_start < 1:
+        parser.error("replicates and replicate-start must be positive")
 
     selected_tasks = args.task or TASKS
     selected_snapshots = args.snapshot or SNAPSHOTS
     try:
-        rows = plan(args.seed, args.replicates, selected_tasks, selected_snapshots)
+        rows = plan(
+            args.seed, args.replicates, selected_tasks, selected_snapshots,
+            args.replicate_start, args.balance_arm_order,
+        )
     except ValueError as exc:
         parser.error(str(exc))
     if args.output:
-        write_cohort_plan(args.output, args.seed, args.replicates, selected_tasks, selected_snapshots)
-    print("# seed " + str(args.seed) + ", " + str(len(rows)) + " trials")
+        write_cohort_plan(
+            args.output, args.seed, args.replicates, selected_tasks, selected_snapshots,
+            args.replicate_start, args.balance_arm_order,
+        )
+    print("# seed " + str(args.seed) + ", " + str(len(rows)) + " trials (replicates starting at r%02d)" % args.replicate_start)
     for row in rows:
         print("%-18s task %s  snapshot %s  replicate %d  run %d of 2" % (
             row["trial_id"], row["task"], row["snapshot"], row["replicate"], row["position"]

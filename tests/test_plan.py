@@ -72,6 +72,58 @@ def test_snapshot_filter_is_recorded_in_stateful_plan(tmp_path):
     assert {row["snapshot"] for row in data["rows"]} == {"80"}
 
 
+def test_replicate_start_creates_fresh_r02_six_trial_cohort(tmp_path):
+    path = tmp_path / "plan.json"
+    data = write_cohort_plan(path, 20261007, 1, ("A", "B", "C"), ("60",), 2)
+
+    assert data["replicate_start"] == 2
+    assert {row["replicate"] for row in data["rows"]} == {2}
+    assert {row["trial_id"] for row in data["rows"]} == {
+        "%s-60-%s-r02" % (task, arm)
+        for task in ("A", "B", "C")
+        for arm in ("baseline", "handoff")
+    }
+    assert {row["state"] for row in data["rows"]} == {"pending"}
+
+
+def test_plan_rejects_nonpositive_replicate_start():
+    with pytest.raises(ValueError, match="replicate_start must be positive"):
+        plan(7, 1, ("A",), ("60",), 0)
+
+
+def test_balanced_arm_order_splits_first_position_evenly_and_is_reproducible():
+    args = (20261009, 4, ("B",), ("60",), 6, True)
+    rows = plan(*args)
+    first_arms = [row["arm"] for row in rows if row["position"] == 1]
+
+    assert Counter(first_arms) == {"baseline": 2, "handoff": 2}
+    assert rows == plan(*args)
+    assert {row["replicate"] for row in rows} == {6, 7, 8, 9}
+
+
+def test_balanced_plan_records_its_ordering_policy(tmp_path):
+    data = write_cohort_plan(
+        tmp_path / "balanced.json", 7, 4, ("B",), ("60",), 6, True
+    )
+
+    assert data["balance_arm_order"] is True
+    assert Counter(row["arm"] for row in data["rows"] if row["position"] == 1) == {
+        "baseline": 2,
+        "handoff": 2,
+    }
+
+
+def test_odd_balanced_plan_has_only_one_extra_first_position():
+    first_arms = Counter(
+        row["arm"]
+        for row in plan(20261009, 3, ("B",), ("60",), 6, True)
+        if row["position"] == 1
+    )
+
+    assert set(first_arms) == {"baseline", "handoff"}
+    assert max(first_arms.values()) - min(first_arms.values()) == 1
+
+
 @pytest.mark.parametrize("tasks,snapshots", [(("A", "A"), ("60",)), (("A",), ("60", "60"))])
 def test_plan_rejects_duplicate_filters(tasks, snapshots):
     with pytest.raises(ValueError, match="unique"):

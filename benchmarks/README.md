@@ -17,11 +17,22 @@ python benchmarks/plan.py --seed 20260911 --replicates 3
 
 By default, every task and snapshot is included. Repeat `--task` and
 `--snapshot` to pre-register a smaller cohort; the selected values are recorded
-in the stateful plan. For example, one replicate at snapshot 60 across all
-three tasks contains six trials (one Baseline and one Handoff per task):
+in the stateful plan. `--replicate-start` assigns fresh trial IDs without
+reusing earlier replicates. Add `--balance-arm-order` to balance which arm
+runs first across replicates within each task/snapshot cell; with an odd number
+of replicates, the extra first position is selected reproducibly from the seed.
+For example, one replicate at snapshot 60 across all three tasks contains six
+trials (one Baseline and one Handoff per task):
 
 ```text
 python benchmarks/plan.py --seed 20261004 --replicates 1 --task A --task B --task C --snapshot 60 --output .trials/v03-instrumentation.json
+```
+
+A four-pair B/60 follow-up can balance the first arm and use new `r06`–`r09`
+IDs as follows:
+
+```text
+python benchmarks/plan.py --seed 20261009 --replicates 4 --replicate-start 6 --balance-arm-order --task B --snapshot 60 --output .trials/v03-b60-balanced.json
 ```
 
 Run the trials in the order it prints. The same seed reprints the same plan on
