@@ -234,6 +234,35 @@ class RecoveryPilotBoundaryTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "manifest hash"):
             pilot._read_plan(path)
 
+    def test_replicate_ids_are_unique_and_legacy_r01_plans_remain_readable(self):
+        home = self.root / "codex-home-replicates"
+        skill = home / "skills" / "agent-handoff" / "SKILL.md"
+        skill.parent.mkdir(parents=True)
+        skill.write_text("---\nname: agent-handoff\ndescription: Preserve coding state.\n---\nbody\n", encoding="utf-8")
+        with patch.dict(os.environ, {"CODEX_HOME": str(home)}):
+            first = self.root / "task-d-v05-r02.json"
+            plan = pilot.register_plan(first, 42, "test-model", "codex-cli test", replicate="r02")
+            self.assertEqual(plan["pair_id"], "D-r02")
+            self.assertEqual(
+                {row["trial_id"] for row in plan["rows"]},
+                {"D-baseline-r02", "D-handoff-r02"},
+            )
+            with self.assertRaisesRegex(FileExistsError, "replicate already has a registered plan"):
+                pilot.register_plan(self.root / "duplicate-r02.json", 43, "test-model", "codex-cli test", replicate="r02")
+
+            (self.root / "D-baseline-r03.json").write_text("{}", encoding="utf-8")
+            with self.assertRaisesRegex(FileExistsError, "trial artifacts already exist"):
+                pilot.register_plan(self.root / "task-d-v05-r03.json", 44, "test-model", "codex-cli test", replicate="r03")
+
+        legacy = pilot.build_plan(45, "test-model", "codex-cli test", {
+            "name": "agent-handoff", "path": "skill/SKILL.md", "sha256": "a" * 64,
+        })
+        legacy.pop("replicate")
+        legacy["manifest_sha256"] = pilot._plan_manifest_hash(legacy)
+        legacy_path = self.root / "legacy-r01.json"
+        legacy_path.write_text(json.dumps(legacy), encoding="utf-8")
+        self.assertEqual(pilot._read_plan(legacy_path)["pair_id"], "D-r01")
+
     def test_record_validator_rejects_false_early_completion_skip(self):
         record = {
             "schema_version": 1,
@@ -283,7 +312,10 @@ class RecoveryPilotBoundaryTests(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 pilot._preflight("task", self.root, "handoff", skills, "codex", "test", "medium")
         self.assertEqual(called.call_count, 1)
-        self.assertIn("debug", called.call_args.args[0])
+        argv = called.call_args.args[0]
+        self.assertIn("debug", argv)
+        self.assertIn("model=\"test\"", argv)
+        self.assertNotIn("--model", argv)
 
     def _plan_path(self):
         data = pilot.build_plan(31, "test-model", "codex-cli test", {

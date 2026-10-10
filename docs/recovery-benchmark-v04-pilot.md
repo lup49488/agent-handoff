@@ -1,8 +1,10 @@
 # Recovery Benchmark v0.4 Pilot Proposal
 
-Status: fixture, offline calibration, and the opt-in two-phase runner are
-implemented. This milestone did not use the live-launch switch; no model trial
-has been run.
+Status: the v0.4 harness and first live matched pair (`D-r01`) are complete.
+Both arms finished before the interruption trigger, so the pair validates
+treatment delivery but provides no recovery-effect comparison. A harder v0.5
+fixture is implemented and passes offline calibration; it has not been run with
+a model.
 
 ## Why a new pilot
 
@@ -15,7 +17,7 @@ user skills in both arms. This estimates the value of having a prepared
 recovery package for these fixtures, not whether the Skill automatically
 creates useful state before a real interruption.
 
-The v0.4 pilot should answer the narrower end-to-end question:
+The pilot should answer the narrower end-to-end question:
 
 > When a coding task is interrupted after meaningful but incomplete work,
 > does having the agent-handoff Skill available from the beginning improve the
@@ -25,9 +27,10 @@ It is exploratory and should not support a public effectiveness claim.
 
 ## Pilot task
 
-Create one public, disposable Python fixture for a cross-module CSV export
-change. The task should require touching a CLI/parser, shared export logic,
-and tests. It should be calibrated so that:
+Use a public, disposable Python fixture for a cross-module CSV export change.
+The first v0.4 version tested a delimiter-only task. Its observed result and
+the v0.5 revision are recorded below. The task should require touching a
+CLI/parser, shared export logic, and tests. It should be calibrated so that:
 
 - the initial repository fails a fixture-owned regression check;
 - a separate progress check can pass while full acceptance still fails;
@@ -43,6 +46,42 @@ project, be hashed in each record, and be tested against both the initial and a
 known-complete fixture before any model launch. If the task regularly completes
 before the interruption trigger, revise the fixture before expanding the
 cohort; do not select or discard individual trials based on their outcome.
+
+## First live pilot result and difficulty revision
+
+The pre-registered `D-r01` pair used Codex CLI 0.160.0 and GPT-5.6 Terra
+Medium. Baseline passed full acceptance in 54.281 seconds; Handoff passed in
+35.281 seconds. Both passed before the five-minute source cutoff, so both
+recovery sessions were skipped by protocol. Baseline had no checkpoint;
+Handoff had a present, valid checkpoint. Both trial records validate and show
+no contamination. This confirms that the Skill was made visible and produced
+state in the Handoff arm, but it does not estimate interruption recovery.
+Preserve the pair as recorded; do not rerun or exclude either row.
+
+The counterbalanced v0.5 `D-r02` pair also completed before interruption:
+Handoff passed in 83.046 seconds with a valid checkpoint; Baseline passed in
+101.796 seconds with no checkpoint. Both records validate, both passed full
+acceptance before the cutoff, and neither shows contamination. Across both
+pairs (four source runs), no recovery session was reached. The harder fixture
+increased work time but remains too easy for the planned five-minute boundary;
+do not expand the cohort on this task or treat these pairs as evidence about
+recovery effectiveness.
+
+The original `benchmarks/fixtures/task-d/` remains unchanged. The separate
+`benchmarks/fixtures/task-d-v05/` fixture raises task complexity by combining
+ordered CSV column projection, null rendering, strict pre-write validation,
+CSV quoting/Unicode behavior, JSON compatibility, and shared schema metadata.
+Its progress evaluator checks delimiter plus projection; full acceptance adds
+null rendering, invalid-option no-truncation behavior, schema-backed JSON, and
+the complete public suite. Model-free calibration confirms initial failure,
+partial progress without acceptance, and reference completion. This proves
+evaluator sensitivity, not that a live agent will still be working at five
+minutes; only a future authorized pilot can establish that empirically.
+
+The runner now accepts a replicate identifier, derives the pair and trial IDs
+from it, preserves legacy `D-r01` plans, and refuses to register an identifier
+already present in another plan or trial artifact. Use `r02` for the next
+pair; its records will not collide with the completed v0.4 `r01` pair.
 
 ## Conditions
 
@@ -158,8 +197,8 @@ Example model-free registration (replace both placeholders with the exact
 configuration chosen for this run):
 
 ```powershell
-python -m benchmarks.recovery_pilot --register-plan .trials/task-d-v04.json --seed 20261009 --model "<pinned model slug>" --cli-version "<exact codex --version output>"
-python -m benchmarks.recovery_pilot --plan .trials/task-d-v04.json --status
+python -m benchmarks.recovery_pilot --register-plan .trials/task-d-v05-r02.json --replicate r02 --seed 20261010 --model "<pinned model slug>" --cli-version "<exact codex --version output>"
+python -m benchmarks.recovery_pilot --plan .trials/task-d-v05-r02.json --status
 ```
 
 Starting the next arm requires a separate, explicit `--launch`; do not include

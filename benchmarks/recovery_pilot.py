@@ -31,7 +31,7 @@ from agent_handoff.store import Store, atomic_write
 from benchmarks.run_trial import _codex_home, _kill_process_tree, _skill_frontmatter_fields
 
 ROOT = Path(__file__).resolve().parents[1]
-FIXTURE = ROOT / "benchmarks" / "fixtures" / "task-d"
+FIXTURE = ROOT / "benchmarks" / "fixtures" / "task-d-v05"
 ARMS = ("baseline", "handoff")
 SOURCE_SECONDS = 300
 RECOVERY_SECONDS = 600
@@ -394,7 +394,7 @@ def _target_argv(prompt: str, model: str, effort: str, arm: str, skills) -> List
 def _preflight(prompt: str, project: Path, arm: str, skills, executable: str, model: str, effort: str) -> List[str]:
     expected = ["agent-handoff"] if arm == "handoff" else []
     rendered = subprocess.run(
-        [executable, "debug", "prompt-input", "--model", model,
+        [executable, "debug", "prompt-input", "-c", "model=" + json.dumps(model),
          "-c", 'model_reasoning_effort="' + effort + '"',
          *codex_isolation_args(arm, skills), prompt],
         cwd=str(project), env=_git_safe_env(project), capture_output=True, text=True, encoding="utf-8",
@@ -428,18 +428,24 @@ def _git_safe_env(project: Path) -> Dict[str, str]:
     return env
 
 
-def build_plan(seed: int, model: str, cli_version: str, skill: Dict[str, str], effort: str = "medium") -> Dict[str, object]:
+def build_plan(
+    seed: int, model: str, cli_version: str, skill: Dict[str, str],
+    effort: str = "medium", replicate: str = "r01",
+) -> Dict[str, object]:
     if not isinstance(seed, int) or isinstance(seed, bool):
         raise ValueError("seed must be an integer")
+    if not isinstance(replicate, str) or re.fullmatch(r"r[0-9]{2,}", replicate) is None:
+        raise ValueError("replicate must look like r01")
     if not model.strip() or not cli_version.strip() or effort != "medium":
         raise ValueError("pin a model and CLI version; Task D effort is medium")
     if skill.get("name") != "agent-handoff" or not skill.get("path") or not skill.get("sha256"):
         raise ValueError("a pinned agent-handoff Skill path and hash are required")
     arms = list(ARMS)
-    random.Random("task-d-v04|%d" % seed).shuffle(arms)
+    random.Random("task-d-v05|%d" % seed).shuffle(arms)
     data = {
         "schema_version": 1,
-        "pair_id": "D-r01",
+        "pair_id": "D-" + replicate,
+        "replicate": replicate,
         "seed": seed,
         "model": model.strip(),
         "effort": effort.strip(),
@@ -455,7 +461,7 @@ def build_plan(seed: int, model: str, cli_version: str, skill: Dict[str, str], e
         "skill": dict(skill),
         "created_at": dt.datetime.now(dt.timezone.utc).isoformat(),
         "rows": [
-            {"trial_id": "D-%s-r01" % arm, "arm": arm, "position": i, "state": "pending"}
+            {"trial_id": "D-%s-%s" % (arm, replicate), "arm": arm, "position": i, "state": "pending"}
             for i, arm in enumerate(arms, 1)
         ],
     }
@@ -475,12 +481,17 @@ def _plan_manifest_hash(data: Dict[str, object]) -> str:
             "fixture_sha256", "prompt_sha256", "evaluator_sha256", "skill", "created_at",
         )
     }
+    if "replicate" in data:
+        immutable["replicate"] = data["replicate"]
     immutable["rows"] = rows
     encoded = json.dumps(immutable, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
     return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
 
-def register_plan(path: Path, seed: int, model: str, cli_version: str, effort: str = "medium") -> Dict[str, object]:
+def register_plan(
+    path: Path, seed: int, model: str, cli_version: str, effort: str = "medium",
+    replicate: str = "r01",
+) -> Dict[str, object]:
     if path.exists():
         raise FileExistsError("pilot plan already exists: " + str(path))
     handoffs = [item for item in _skill_catalog(_codex_home()) if item[1] == "agent-handoff"]
@@ -489,19 +500,47 @@ def register_plan(path: Path, seed: int, model: str, cli_version: str, effort: s
     handoff = handoffs[0]
     data = build_plan(seed, model, cli_version, {
         "path": str(handoff[0]), "name": handoff[1], "sha256": _sha256(handoff[0]),
-    }, effort)
+    }, effort, replicate)
+    for candidate in Path(path).parent.glob("*.json"):
+        if candidate.resolve() == Path(path).resolve():
+            continue
+        try:
+            existing = json.loads(candidate.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if existing.get("pair_id") == data["pair_id"]:
+            raise FileExistsError("replicate already has a registered plan: " + str(candidate))
+    for row in data["rows"]:
+        trial_id = str(row["trial_id"])
+        if any((Path(path).parent / (trial_id + suffix)).exists()
+               for suffix in (".json", ".failure.json", ".patch")):
+            raise FileExistsError("trial artifacts already exist for " + trial_id)
     atomic_write(path, json.dumps(data, ensure_ascii=False, indent=2) + "\n")
     return data
 
 
 def _read_plan(path: Path) -> Dict[str, object]:
     data = json.loads(path.read_text(encoding="utf-8"))
-    if data.get("schema_version") != 1 or data.get("pair_id") != "D-r01":
+    replicate = data.get("replicate")
+    if replicate is None and data.get("pair_id") == "D-r01":
+        replicate = "r01"  # v0.4 plans predate the explicit replicate field.
+    if (
+        data.get("schema_version") != 1
+        or not isinstance(replicate, str)
+        or re.fullmatch(r"r[0-9]{2,}", replicate) is None
+        or data.get("pair_id") != "D-" + replicate
+    ):
         raise ValueError("unsupported recovery pilot plan")
     rows = data.get("rows")
     if (not isinstance(rows, list) or len(rows) != 2
             or [row.get("arm") for row in rows] not in (list(ARMS), list(reversed(ARMS)))):
         raise ValueError("pilot plan must contain exactly one row per arm")
+    if any(
+        row.get("trial_id") != "D-%s-%s" % (row.get("arm"), replicate)
+        or row.get("position") != index
+        for index, row in enumerate(rows, 1)
+    ):
+        raise ValueError("pilot row identifiers do not match the registered replicate")
     if any(row.get("state") not in ("pending", "running", "recorded", "invalid") for row in rows):
         raise ValueError("pilot plan contains an unknown row state")
     if not data.get("model") or not data.get("cli_version") or data.get("target") != "codex":
@@ -832,6 +871,7 @@ def main(argv: List[str] | None = None) -> int:
     parser.add_argument("--register-plan", type=Path, help="pre-register one randomized Baseline/Handoff pair")
     parser.add_argument("--plan", type=Path, help="inspect or advance a registered pair")
     parser.add_argument("--seed", type=int, help="randomization seed for --register-plan")
+    parser.add_argument("--replicate", default="r01", help="unique replicate identifier (for example r02)")
     parser.add_argument("--model", help="exact pinned Codex model name for plan registration")
     parser.add_argument("--cli-version", help="exact output of `codex --version` for plan registration")
     parser.add_argument("--launch", action="store_true", help="launch exactly the next pending arm; consumes model quota")
@@ -850,7 +890,10 @@ def main(argv: List[str] | None = None) -> int:
         if args.seed is None or not args.model or not args.cli_version:
             parser.error("--register-plan requires --seed, --model, and --cli-version")
         try:
-            plan = register_plan(args.register_plan, args.seed, args.model, args.cli_version)
+            plan = register_plan(
+                args.register_plan, args.seed, args.model, args.cli_version,
+                replicate=args.replicate,
+            )
         except (OSError, ValueError) as exc:
             parser.error(str(exc))
         print("registered %s with order %s" % (plan["pair_id"], " -> ".join(row["arm"] for row in plan["rows"])))
