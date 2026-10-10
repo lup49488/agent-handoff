@@ -257,9 +257,13 @@ def _target_argv(adapter, prompt: str, target: str, model: str, effort: str) -> 
 
 #: What a target's logs show when something outside the arm's condition
 #: reached it. The Handoff arm is supposed to use the `handoff` CLI and read
-#: the package; the Baseline arm is not, and neither arm should read the
-#: handoff skill or the agent's persistent memories.
-_SKILL_READ = re.compile(r"skills[\\/]+agent-handoff", re.IGNORECASE)
+#: the package; the Baseline arm is not, and neither arm should read a user
+#: skill it was not given or the agent's persistent memories. The skill's
+#: directory name is captured so a treatment that grants one skill can still
+#: be held to it.
+_SKILL_READ = re.compile(
+    r"skills[\\/]+([^\\/\"'\s]+)[\\/]+(?:[^\"'\s]*?[\\/]+)?SKILL\.md", re.IGNORECASE
+)
 # Codex keeps memories in `memories/*.md`; Claude Code in
 # `projects/<working directory>/memory/*.md`.
 _MEMORY_READ = re.compile(
@@ -293,15 +297,29 @@ def _skills_loaded(stdout: str) -> List[str]:
     return []
 
 
-def _contamination(arm: str, project: Path, stdout: str, stderr: str) -> List[str]:
-    """Reasons this trial's target was not in the condition its arm names."""
+def _contamination(
+    arm: str, project: Path, stdout: str, stderr: str, permitted_skills: Sequence[str] = (),
+) -> List[str]:
+    """Reasons this trial's target was not in the condition its arm names.
+
+    `permitted_skills` names user skills that are part of the arm's treatment
+    — the recovery pilot grants its Handoff arm the agent-handoff skill — so
+    reading those is the treatment working, not contamination. Skills a
+    target ships with (`.system`) never count.
+
+    The one scan for both runners: the pilot used to keep its own copy, and
+    the two had already drifted apart.
+    """
     text = (stdout or "") + "\n" + (stderr or "")
     found = []
     loaded = _skills_loaded(stdout)
     if loaded:
         found.append("loaded skills: " + ", ".join(loaded[:5]) + ("…" if len(loaded) > 5 else ""))
-    if _SKILL_READ.search(text):
-        found.append("read the agent-handoff skill")
+    allowed = {".system"} | {name.casefold() for name in permitted_skills}
+    read = sorted({match.group(1) for match in _SKILL_READ.finditer(text)
+                   if match.group(1).casefold() not in allowed})
+    for name in read:
+        found.append("read the %s skill" % name)
     if _MEMORY_READ.search(text):
         found.append("read the agent's persistent memories")
     if arm == "baseline":
@@ -482,6 +500,24 @@ def _package_stayed_out_of_git(project: Path) -> bool:
     return not (seen & package_paths)
 
 
+_EXECUTABLES = {"codex": "codex", "claude-code": "claude"}
+
+
+def _installed_version(target: str) -> Optional[str]:
+    """What the target CLI on PATH reports as its version, or None."""
+    executable = shutil.which(_EXECUTABLES[target])
+    if executable is None:
+        return None
+    try:
+        reported = subprocess.run(
+            [executable, "--version"], capture_output=True, text=True, encoding="utf-8",
+            errors="replace", timeout=30, check=True,
+        ).stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return reported or None
+
+
 def _planned_schedule(
     task: str,
     snapshot: str,
@@ -561,8 +597,23 @@ def run_trial(
         raise ValueError("target must be one of: " + ", ".join(TARGETS))
     if replicate < 1 or wall_seconds < 1:
         raise ValueError("replicate and wall_seconds must be positive")
-    if launch and (model == "unrecorded" or target_version == "unrecorded"):
-        raise ValueError("--launch requires --model and --target-version")
+    if launch and model == "unrecorded":
+        raise ValueError("--launch requires --model")
+    if launch:
+        # Read, not typed: hand-typed versions put one Codex release under
+        # three cohort keys ("codex-cli 0.160.0", "codex-cli-0.160.0",
+        # "0.160.0") — splitting the clean cohort and keeping it apart from the
+        # contaminated one only by a typo.
+        installed = _installed_version(target)
+        if installed is not None:
+            if target_version not in ("unrecorded", installed):
+                raise ValueError(
+                    "--target-version %r does not match the installed CLI, which reports %r"
+                    % (target_version, installed)
+                )
+            target_version = installed
+        elif target_version == "unrecorded":
+            raise ValueError("--launch requires --target-version when the CLI version cannot be read")
     if cohort_plan is not None and not launch:
         raise ValueError("--cohort-plan requires --launch")
 

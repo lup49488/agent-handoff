@@ -1,10 +1,12 @@
 # Recovery Benchmark v0.4 Pilot Proposal
 
-Status: the v0.4 harness and first live matched pair (`D-r01`) are complete.
-Both arms finished before the interruption trigger, so the pair validates
-treatment delivery but provides no recovery-effect comparison. A harder v0.5
-fixture is implemented and passes offline calibration; it has not been run with
-a model.
+Status: two live matched pairs have run — `D-r01` on the v0.4 fixture and
+`D-r02` on the harder v0.5 fixture. In all four source sessions the task was
+finished before the five-minute wall-clock cutoff, so no recovery session has
+yet run and there is no recovery-effect comparison. Plans registered from now
+on use a progress-triggered interruption and render the Handoff arm's package
+at the stop; see [Interruption](#interruption-and-budgets). No pair has run
+under that protocol yet.
 
 ## Why a new pilot
 
@@ -30,7 +32,8 @@ It is exploratory and should not support a public effectiveness claim.
 Use a public, disposable Python fixture for a cross-module CSV export change.
 The first v0.4 version tested a delimiter-only task. Its observed result and
 the v0.5 revision are recorded below. The task should require touching a
-CLI/parser, shared export logic, and tests. It should be calibrated so that:
+CLI/parser, shared export logic and shared schema, while leaving the public
+tests untouched. It should be calibrated so that:
 
 - the initial repository fails a fixture-owned regression check;
 - a separate progress check can pass while full acceptance still fails;
@@ -80,8 +83,17 @@ minutes; only a future authorized pilot can establish that empirically.
 
 The runner now accepts a replicate identifier, derives the pair and trial IDs
 from it, preserves legacy `D-r01` plans, and refuses to register an identifier
-already present in another plan or trial artifact. Use `r02` for the next
-pair; its records will not collide with the completed v0.4 `r01` pair.
+already present in another plan or trial artifact. `r01` and `r02` are used;
+register the next pair as `r03`.
+
+The scope audit's allowed files are derived from the fixture: every file its
+partial or reference variant changes, plus `HANDOFF.md`. A hand-written list
+had left out `schema.py`, which the v0.5 prompt tells the target to edit and
+the reference does edit, so every correct solution and the partial state itself
+would have been scored out of scope. It went unnoticed because no recovery
+session — the only phase the audit scores — had run, and because calibration
+checked the evaluators but not the audit. Calibration now runs the partial and
+reference states through the scope audit as well.
 
 ## Conditions
 
@@ -108,16 +120,34 @@ can isolate the recovery artifact itself, but it is not part of this pilot.
 
 - Pin the exact Codex CLI version, model, and effort before pre-registration;
   keep the same configuration for source and recovery sessions in both arms.
-- Give source work a fixed five-minute cap and recovery work a fixed ten-minute
+- Give source work a five-minute hard stop and recovery work a ten-minute
   cap. Record both phase durations separately; the runner must terminate the
   source process tree at the declared boundary.
-- Use a fixture-owned progress predicate to make the interruption state
-  inspectable. The trigger must be condition-independent and frozen before
-  launch. Full acceptance passing before interruption is recorded as
-  `completed_before_interruption` and makes that task unsuitable for a
-  recovery-effect estimate; it is not silently excluded from the pilot log.
-- The Handoff package must be captured exactly as it exists at the stop. Never
-  create or repair a checkpoint in the harness after interruption.
+- **Interrupt on progress, not on the clock.** The source session is stopped
+  the moment the fixture-owned progress check first passes, unless full
+  acceptance passes in the same probe round; the probe runs every second, with
+  no grace period. The same rule applies to both arms and is frozen into each
+  plan (`interruption` in a schema-2 plan; the plan will not load if it
+  differs). The wall-clock rule never produced an interruption: in `D-r01`
+  and `D-r02` all four sessions finished well inside five minutes, and in all
+  four, progress and completion were first observed in the same five-second
+  round — the agent writes the solution in a burst. A grace period would
+  mostly let it finish, and a coarse probe would miss the window. Whether a
+  one-second probe catches the window often enough is itself the next
+  question the pilot answers; a session that completes first is still
+  recorded as `completed_before_interruption`, never excluded.
+- **The Handoff arm is handed over as the product hands over.** At the stop,
+  the harness runs `handoff pack` in the Handoff arm, which is what a failing
+  `handoff run` or a `handoff switch` does at a handoff; an agent stopped
+  mid-task has usually not rendered `HANDOFF.md` itself. Only rendering
+  happens: if the source session never initialised tracking, nothing is
+  created for it, and that is the treatment's own outcome. The record keeps
+  both `checkpoint_at_stop` (what the agent left) and `checkpoint` (what
+  recovery receives), with the pack's own result. The Baseline arm receives
+  nothing, and a record that shows a pack for it fails validation.
+- Never create, edit or repair checkpoint content in the harness.
+- `D-r01` and `D-r02` ran under the previous rule — wall-clock cutoff, no
+  pack — and their schema-1 plans still read back as that rule.
 - Randomize which arm runs first. Run one process at a time. Pre-register the
   pair and write each trial record before the first model call.
 - Use only synthetic/public task data. Keep authentication material and raw
@@ -197,8 +227,8 @@ Example model-free registration (replace both placeholders with the exact
 configuration chosen for this run):
 
 ```powershell
-python -m benchmarks.recovery_pilot --register-plan .trials/task-d-v05-r02.json --replicate r02 --seed 20261010 --model "<pinned model slug>" --cli-version "<exact codex --version output>"
-python -m benchmarks.recovery_pilot --plan .trials/task-d-v05-r02.json --status
+python -m benchmarks.recovery_pilot --register-plan .trials/task-d-v05-r03.json --replicate r03 --seed 20261011 --model "<pinned model slug>" --cli-version "<exact codex --version output>"
+python -m benchmarks.recovery_pilot --plan .trials/task-d-v05-r03.json --status
 ```
 
 Starting the next arm requires a separate, explicit `--launch`; do not include

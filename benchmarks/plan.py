@@ -228,6 +228,26 @@ def release_trial(path: Path, trial_id: str, *, force: bool = False) -> None:
     _move(path, trial_id, "pending", force=force)
 
 
+def withdraw_trial(path: Path, trial_id: str, reason: str) -> None:
+    """Mark a row that will never be run as `withdrawn`, with the reason.
+
+    For a plan abandoned part-way — the v0.3 `post-actions-r04` plan was left
+    with four pending rows whose ids an earlier cohort had already used. A
+    withdrawn row is never claimed, and says why, instead of sitting `pending`
+    as an invitation to resume a plan nobody means to finish.
+    """
+    if not reason.strip():
+        raise ValueError("a withdrawal needs a reason")
+    with _plan_lock(path):
+        data = read_cohort_plan(path)
+        row = next((r for r in data["rows"] if r.get("trial_id") == trial_id), None)
+        if row is None or row.get("state") != "pending":
+            raise ValueError("cohort plan has no pending trial " + trial_id)
+        row["state"] = "withdrawn"
+        row["withdrawn_because"] = reason.strip()
+        _write(path, data)
+
+
 def status(path: Path) -> Dict[str, Any]:
     """Row states, and which cells lost a replicate to an invalid trial.
 
@@ -258,15 +278,20 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--status", action="store_true", help="summarise the plan's row states")
     parser.add_argument("--release", metavar="TRIAL_ID", help="return an abandoned running row to pending")
     parser.add_argument("--force", action="store_true", help="with --release: skip the liveness check")
+    parser.add_argument("--withdraw", metavar="TRIAL_ID", help="mark a pending row that will never run")
+    parser.add_argument("--reason", default="", help="with --withdraw: why the row will not run")
     args = parser.parse_args(argv)
 
-    if args.status or args.release:
+    if args.status or args.release or args.withdraw:
         if args.plan is None:
-            parser.error("--status and --release need --plan")
+            parser.error("--status, --release and --withdraw need --plan")
         try:
             if args.release:
                 release_trial(args.plan, args.release, force=args.force)
                 print("released " + args.release)
+            if args.withdraw:
+                withdraw_trial(args.plan, args.withdraw, args.reason)
+                print("withdrew " + args.withdraw)
             summary = status(args.plan)
         except (OSError, ValueError, lock_mod.LockBusy) as exc:
             parser.error(str(exc))

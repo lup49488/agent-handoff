@@ -13,3 +13,6 @@ HANDOFF.md
 
 # disposable benchmark workspaces; a trial is evidence, not source
 .trials/
+
+# runs that checked the harness itself; not part of any cohort
+.verification/

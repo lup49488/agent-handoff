@@ -143,3 +143,19 @@ def test_written_cohort_plan_starts_pending_and_cannot_be_replaced(tmp_path):
     assert {row["state"] for row in data["rows"]} == {"pending"}
     with pytest.raises(FileExistsError):
         write_cohort_plan(path, 8, 1, ("A",))
+
+
+def test_a_withdrawn_row_is_never_claimed_and_says_why(tmp_path):
+    from benchmarks.plan import claim_trial, status, withdraw_trial
+
+    path = tmp_path / "plan.json"
+    rows = write_cohort_plan(path, 7, 1, ("A",))["rows"]
+    withdraw_trial(path, rows[0]["trial_id"], "ids already used by an earlier cohort")
+
+    data = json.loads(path.read_text(encoding="utf-8"))
+    assert data["rows"][0]["state"] == "withdrawn"
+    assert data["rows"][0]["withdrawn_because"]
+    assert claim_trial(path, rows[1]["trial_id"])["trial_id"] == rows[1]["trial_id"]
+    assert status(path)["states"]["withdrawn"] == 1
+    with pytest.raises(ValueError, match="needs a reason"):
+        withdraw_trial(path, rows[2]["trial_id"], " ")

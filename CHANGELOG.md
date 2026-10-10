@@ -13,6 +13,59 @@ is still below 1.0, so the interface may still change.
 
 ### Fixed
 
+- Every correct v0.5 recovery would have been scored out of scope. The
+  recovery pilot's hand-written list of files a target may change left out
+  `schema.py`, which the v0.5 prompt tells the target to edit and the
+  reference solution does edit; the partial state at interruption failed the
+  audit too. Unnoticed because no recovery session — the only phase the audit
+  scores — had run, and because calibration checked the evaluators but not the
+  audit. The list is now derived from what the fixture's own partial and
+  reference variants change, and calibration runs both through the audit. With
+  the old list, calibration now fails.
+
+- The recovery pilot never interrupted anything. All four source sessions
+  finished well inside the five-minute cutoff, so no recovery session ever
+  ran. New plans (schema 2) stop the source session the moment the progress
+  check first passes, unless acceptance passes in the same round, probing
+  every second with no grace: in all four sessions progress and completion
+  were first seen in the same five-second round, so the agent writes the
+  solution in a burst and a grace period would mostly let it finish. The rule
+  is frozen into each plan; D-r01 and D-r02 still read back as the wall-clock
+  rule they ran under.
+
+- A Handoff arm stopped mid-task was not handed over. The harness now runs
+  `handoff pack` in that arm at the stop, as a failing `handoff run` or a
+  `handoff switch` would; an agent stopped mid-task has usually not rendered
+  `HANDOFF.md` itself. Only rendering: a session that never started tracking
+  gets nothing created for it. Records keep what the agent left and what
+  recovery received separately; a pack in the Baseline arm fails validation.
+
+- Hand-typed CLI versions split cohorts. One Codex release was recorded as
+  `codex-cli 0.160.0`, `codex-cli-0.160.0` and `0.160.0`, splitting the clean
+  snapshot cohort in two and keeping it apart from the contaminated v0.3
+  cohort only by a typo. `run_trial.py` now reads the version from the CLI and
+  refuses a typed one that disagrees; the summary compares versions by release
+  number and never pools record schemas.
+
+- `summarize.py .trials`, the documented command, could not run. Two
+  verification trials reused the id `A-60-baseline-r01`; a sandbox had left
+  pytest records under `.trials/.sandbox-tmp`; and the pattern for exported
+  records also matched pilot records and cohort plans. Verification runs now
+  live in `.verification/`, dot-directories are skipped, and exported records
+  must be named like one.
+
+- The recovery pilot kept its own copy of the contamination scan, which no
+  longer recognised `python -m agent_handoff`. It now uses the snapshot
+  runner's scan, granting its Handoff arm the one skill its treatment
+  consists of; the scan names whichever user skill was read rather than only
+  agent-handoff.
+
+### Added
+
+- `plan.py --withdraw` marks a pending row that will never run, with the
+  reason. Used on the four rows the `post-actions-r04` plan was left with,
+  whose ids the contaminated v0.3 cohort had already used.
+
 - On Windows, an exclusive lock-file create can report an existing lock as
   `PermissionError` instead of `FileExistsError`. The lock now treats that as
   contention only when the lock path exists, preserving real permission errors.

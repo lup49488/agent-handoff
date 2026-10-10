@@ -166,3 +166,45 @@ def test_times_are_printed_to_the_millisecond(tmp_path, capsys):
 
     assert "37.617" in out
     assert "37.617000000000004" not in out
+
+
+# -- what a cohort is ------------------------------------------------------------
+
+
+def test_spellings_of_one_release_are_one_cohort():
+    """The clean v0.4 snapshot cohort was typed three ways."""
+    records = [
+        trial(trial_id="A-30-baseline-r0%d" % i, target={"agent": "codex", "version": v,
+                                                         "model": "m", "effort": "medium"})
+        for i, v in enumerate(("codex-cli 0.160.0", "codex-cli-0.160.0", "0.160.0"), 1)
+    ]
+
+    row = cell(summarize(records))
+
+    assert row["accepted"] == 3
+    assert row["version"] == "0.160.0"
+
+
+def test_record_schemas_are_never_pooled():
+    """Schema 3 is the contaminated v0.3 cohort; schema 4 is isolated."""
+    v4 = trial(trial_id="A-30-baseline-r02", schema_version=4, contamination=[], progress_separable=False,
+               isolation={"workspace": "neutral-temporary", "agent_args": []})
+    rows = [r for r in summarize([trial(), v4]) if r["trials_seen"]]
+
+    assert sorted(r["schema"] for r in rows) == ["v3", "v4"]
+    assert all(r["trials_seen"] == 1 for r in rows)
+
+
+def test_scratch_directories_and_other_json_are_not_trials(tmp_path, capsys):
+    """A sandbox's pytest temp under `.trials`, pilot records and plans were all read as trials."""
+    import json
+
+    (tmp_path / ".sandbox-tmp" / "case").mkdir(parents=True)
+    (tmp_path / ".sandbox-tmp" / "case" / "trial.json").write_text(json.dumps(trial()), encoding="utf-8")
+    (tmp_path / "D-baseline-r01.json").write_text("{}", encoding="utf-8")
+    (tmp_path / "v03-post-actions-r04-20261008.json").write_text("{}", encoding="utf-8")
+    (tmp_path / "A-30-baseline-r01.json").write_text(json.dumps(trial()), encoding="utf-8")
+
+    assert main([str(tmp_path), "--format", "json"]) == 0
+    rows = json.loads(capsys.readouterr().out)
+    assert sum(row["trials_seen"] for row in rows) == 1

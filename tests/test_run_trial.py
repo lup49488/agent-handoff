@@ -321,3 +321,29 @@ def test_the_release_command_runs_as_documented(tmp_path):
     assert result.returncode == 0, result.stderr
     assert "released " + rows[0]["trial_id"] in result.stdout
     assert "pending" in result.stdout
+
+
+# -- the version a trial records ----------------------------------------------
+
+
+def test_a_launch_records_the_version_the_cli_reports(tmp_path, monkeypatch):
+    """Typed versions split one release into three cohort keys."""
+    import benchmarks.run_trial as runner
+
+    monkeypatch.setattr(runner, "_installed_version", lambda target: "codex-cli 0.160.0")
+    monkeypatch.setattr(runner, "_preflight", lambda target, project: "passed")
+    monkeypatch.setattr(runner, "_launch", lambda *a: {"invalid_reason": "target_not_started"})
+
+    record = runner.run_trial("A", "60", "baseline", "codex", 1, tmp_path / "t", model="m", launch=True)
+
+    assert record["target"]["version"] == "codex-cli 0.160.0"
+
+
+def test_a_typed_version_that_disagrees_with_the_cli_is_refused(tmp_path, monkeypatch):
+    import benchmarks.run_trial as runner
+
+    monkeypatch.setattr(runner, "_installed_version", lambda target: "codex-cli 0.160.0")
+
+    with pytest.raises(ValueError, match="does not match the installed CLI"):
+        runner.run_trial("A", "60", "baseline", "codex", 1, tmp_path / "t",
+                         model="m", target_version="0.159.0", launch=True)

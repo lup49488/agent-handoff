@@ -43,7 +43,7 @@ then recorded; it refuses a later row or a second concurrent claim.
 
 ```text
 python benchmarks/plan.py --seed 20260911 --replicates 3 --output .trials/cohort-plan.json
-python benchmarks/run_trial.py A 60 handoff codex 1 .trials/A-60-handoff-r01 --model <model> --target-version <version> --cohort-plan .trials/cohort-plan.json --launch
+python benchmarks/run_trial.py A 60 handoff codex 1 .trials/A-60-handoff-r01 --model <model> --cohort-plan .trials/cohort-plan.json --launch
 ```
 
 ## Preparing a trial
@@ -79,9 +79,12 @@ python benchmarks/run_trial.py A 60 handoff codex 1 .trials/A-60-handoff-r01
 ```
 
 Preparation is free and repeatable. Adding `--launch` starts the one target
-named on the command line and **spends real quota**; it also requires `--model`
-and `--target-version`, because a trial whose target is not pinned cannot join a
-cohort. A target that runs past `--wall-seconds` has its whole process tree
+named on the command line and **spends real quota**; it also requires `--model`,
+because a trial whose target is not pinned cannot join a cohort. The CLI version
+is read from the installed CLI itself and recorded as it reports it; a
+`--target-version` that disagrees is refused. Typed by hand, one Codex release
+was recorded three ways, which split one cohort in two and kept the v0.3
+cohort apart from the clean one only by a typo. A target that runs past `--wall-seconds` has its whole process tree
 killed, so a timed-out trial stops costing money.
 
 ### Isolation
@@ -193,6 +196,13 @@ than `recorded`: the row is used, the cell is one replicate short, and
 `--status` names every cell in that state. Topping a cell up means adding a
 new pre-registered row, not re-running the old one silently.
 
+A plan abandoned part-way should not keep rows `pending`. Withdraw each with
+the reason it will not run; a withdrawn row is never claimed:
+
+```text
+python benchmarks/plan.py --plan .trials/cohort-plan.json --withdraw B-60-baseline-r04 --reason "ids already used"
+```
+
 ## Validating a record
 
 ```text
@@ -207,10 +217,14 @@ review.
 ## Summarizing a cohort
 
 The summary accepts schema-v3 and v4 records and groups by pinned agent, version,
-model, effort, task, snapshot, and arm. It reports completion rate over accepted
-trials, invalid attempts, median times, and missing accepted replicates without
-pooling cells. It also emits empty cells for a cohort present in the input, so
-missing snapshots remain visible:
+model, effort, record schema, task, snapshot, and arm. Versions are compared by
+release number, so `codex-cli 0.160.0` and `0.160.0` are one cohort. Schemas
+are never pooled: schema 3 is the v0.3 cohort, run before targets were
+isolated. Records under dot-directories (a sandbox's scratch space, say) are
+skipped. It reports completion rate over accepted trials, invalid attempts,
+median times, and missing accepted replicates without pooling cells. It also
+emits empty cells for a cohort present in the input, so missing snapshots
+remain visible:
 
 ```text
 python benchmarks/summarize.py .trials --expected-replicates 3

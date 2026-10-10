@@ -23,19 +23,76 @@ import time
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
+from agent_handoff import __version__ as _handoff_version
 from agent_handoff.adapters import registry
 from agent_handoff.integrity import errors as integrity_errors
 from agent_handoff.integrity import verify_package
 from agent_handoff.lock import Lock, process_alive
 from agent_handoff.store import Store, atomic_write
 from benchmarks.run_trial import _codex_home, _kill_process_tree, _skill_frontmatter_fields
+from benchmarks.run_trial import _contamination as _shared_contamination
 
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURE = ROOT / "benchmarks" / "fixtures" / "task-d-v05"
 ARMS = ("baseline", "handoff")
 SOURCE_SECONDS = 300
 RECOVERY_SECONDS = 600
-ALLOWED_CHANGES = {"cli.py", "csv_export.py", "json_export.py", "HANDOFF.md"}
+
+#: The interruption rule, frozen into every schema-2 plan.
+#:
+#: Stop the source session the moment the progress check first passes, unless
+#: full acceptance passes in the same round. In D-r01 and D-r02 all four source
+#: sessions finished long before the 300-second cutoff, so no recovery was ever
+#: measured — and in all four, progress and completion were first seen in the
+#: same five-second round. Agents write the solution in a burst, so a grace
+#: period would mostly let them finish and a coarse probe would miss the
+#: window: hence no grace and a one-second probe. The 300 seconds remain the
+#: hard stop. The Handoff arm's package is then rendered as the product
+#: renders it at a handoff (`pack_at_interruption`).
+INTERRUPTION_POLICY = {
+    "trigger": "first_progress",
+    "grace_seconds": 0,
+    "probe_seconds": 1.0,
+    "pack_handoff_arm": True,
+}
+
+#: What schema-1 plans (D-r01, D-r02) ran under; read back for them so their
+#: records keep meaning what they meant.
+LEGACY_INTERRUPTION_POLICY = {
+    "trigger": "source_budget",
+    "grace_seconds": None,
+    "probe_seconds": 5.0,
+    "pack_handoff_arm": False,
+}
+
+
+def interruption_policy(plan: Dict[str, object]) -> Dict[str, object]:
+    return dict(plan.get("interruption") or LEGACY_INTERRUPTION_POLICY)
+def _allowed_changes() -> set:
+    """Every file a correct solution may change, derived from the fixture.
+
+    A hand-written list left out `schema.py`, which the v0.5 prompt tells the
+    target to edit and the reference solution does edit: every correct
+    solution, and the partial state at interruption, failed the scope audit.
+    The same mistake disqualified task B in the snapshot runner. Deriving the
+    set from what the fixture's own partial and reference variants change
+    means it cannot fall behind the fixture again. `HANDOFF.md` is the
+    package the Handoff arm is meant to produce.
+    """
+    project = FIXTURE / "project"
+    changed = {"HANDOFF.md"}
+    for variant in ("partial", "reference"):
+        for path in (FIXTURE / variant).rglob("*"):
+            if not path.is_file():
+                continue
+            name = path.relative_to(FIXTURE / variant).as_posix()
+            original = project / name
+            if not original.is_file() or original.read_bytes() != path.read_bytes():
+                changed.add(name)
+    return changed
+
+
+ALLOWED_CHANGES = _allowed_changes()
 
 
 def _sha256(path: Path) -> str:
@@ -120,24 +177,14 @@ def interrupt_outcome(progress_passed: bool, completion_passed: bool) -> str:
 
 
 def contamination_findings(arm: str, project: Path, stdout: str, stderr: str) -> List[str]:
-    """Detect visible cross-arm Skill, memory, or handoff-state leakage."""
-    combined = (stdout or "") + "\n" + (stderr or "")
-    found = []
-    if re.search(r"memories[\\/]+[\w.-]*\.md|projects[\\/]+[^\\/\"']+[\\/]+memory[\\/]+[\w.-]*\.md", combined, re.I):
-        found.append("persistent memory path appeared in target output")
-    skill_paths = re.findall(
-        r"(?:\.codex[\\/]+)?skills[\\/]+([^\\/\"'\s]+)[\\/]+SKILL\.md",
-        combined, flags=re.I,
-    )
-    unexpected = sorted({name for name in skill_paths if name.casefold() != ".system" and not (arm == "handoff" and name.casefold() == "agent-handoff")})
-    if unexpected:
-        found.append("unexpected user Skill path(s): " + ", ".join(unexpected))
-    if arm == "baseline":
-        if re.search(r"(?:^|[\s;'\"&|(])handoff(?:\.exe)?\s+(?:--version|init|status|verify|checkpoint|tests|pack|snapshot|event|command|switch|run|recover|protocol|sessions|health|agents|config)\b", combined, re.M):
-            found.append("baseline ran the handoff CLI")
-        if (project / ".agent-handoff").exists() or (project / "HANDOFF.md").exists():
-            found.append("baseline created handoff state")
-    return found
+    """Detect visible cross-arm Skill, memory, or handoff-state leakage.
+
+    Delegates to the snapshot runner's scan, granting the Handoff arm the one
+    skill its treatment consists of. A second copy of the patterns had already
+    stopped recognising `python -m agent_handoff`.
+    """
+    permitted = ("agent-handoff",) if arm == "handoff" else ()
+    return _shared_contamination(arm, project, stdout, stderr, permitted_skills=permitted)
 
 
 def checkpoint_evidence(project: Path) -> Dict[str, object]:
@@ -155,16 +202,53 @@ def checkpoint_evidence(project: Path) -> Dict[str, object]:
     }
 
 
+def pack_at_interruption(project: Path) -> Dict[str, object]:
+    """Render the handoff package, as the product does at a handoff.
+
+    A supervised `handoff run` writes HANDOFF.md when its agent fails, and
+    `handoff switch` writes it when a user hands over; an agent stopped
+    mid-task has usually not run `handoff pack` itself. Leaving the package
+    unrendered would measure the skill without the step the product performs
+    at exactly this moment. Only rendering happens here: if the source session
+    never started tracking, there is nothing to render and nothing is created
+    on its behalf — that is the treatment's own outcome.
+    """
+    if not (project / ".agent-handoff").is_dir():
+        return {"ran": False, "reason": "the source session never initialised handoff tracking"}
+    env = _git_safe_env(project)
+    env["PYTHONPATH"] = str(ROOT / "src") + os.pathsep + env.get("PYTHONPATH", "")
+    result = subprocess.run(
+        [sys.executable, "-m", "agent_handoff", "pack", "--to", "codex"],
+        cwd=str(project), env=env, capture_output=True, text=True,
+        encoding="utf-8", errors="replace", timeout=120,
+    )
+    return {
+        "ran": True,
+        "command": "handoff pack --to codex",
+        "handoff_version": _handoff_version,
+        "exit_code": result.returncode,
+        "output_tail": (result.stdout + result.stderr)[-400:],
+    }
+
+
 def run_bounded_process(
     argv: Sequence[str], cwd: Path, timeout_seconds: int,
     *, env: Optional[Dict[str, str]] = None, progress_probe: Optional[Callable[[], bool]] = None,
     completion_probe: Optional[Callable[[], bool]] = None, probe_interval: float = 5.0,
+    stop_after_progress: Optional[float] = None,
     on_start: Optional[Callable[[int], None]] = None,
     on_finish: Optional[Callable[[], None]] = None,
     popen: Callable = subprocess.Popen,
     kill_tree: Callable = _kill_process_tree,
 ) -> Dict[str, object]:
-    """Run one session, hard-stop its process tree at the budget, and collect output."""
+    """Run one session, hard-stop its process tree at the budget, and collect output.
+
+    With `stop_after_progress`, the session is also stopped that many seconds
+    after the progress check first passes, unless full acceptance passes
+    first. That is the interruption trigger: the same rule for both arms,
+    fixed before launch, and it lands where meaningful work exists but is not
+    finished — which a wall-clock cutoff the agent always beat never did.
+    """
     started_at = dt.datetime.now(dt.timezone.utc).isoformat()
     started = time.monotonic()
     proc = popen(
@@ -188,13 +272,17 @@ def run_bounded_process(
     stop_probe = threading.Event()
     first_progress = [None]
     first_completion = [None]
+    triggered = [None]
 
     def monitor_progress():
+        stop_at = None
         while not stop_probe.wait(probe_interval):
             elapsed = round(time.monotonic() - started, 3)
             try:
                 if progress_probe is not None and first_progress[0] is None and progress_probe():
                     first_progress[0] = elapsed
+                    if stop_after_progress is not None:
+                        stop_at = elapsed + stop_after_progress
             except Exception:
                 # A probe failure is not evidence of task progress. The
                 # immutable final evaluator still determines acceptance.
@@ -205,6 +293,12 @@ def run_bounded_process(
                     return
             except Exception:
                 pass
+            # Completion is checked first in the same round, so a session that
+            # finished is never cut off for having made progress.
+            if stop_at is not None and time.monotonic() - started >= stop_at:
+                triggered[0] = round(time.monotonic() - started, 3)
+                kill_tree(proc)
+                return
 
     monitor = None
     if progress_probe is not None:
@@ -243,6 +337,8 @@ def run_bounded_process(
         "stderr": stderr or "",
         "first_verified_progress_seconds": first_progress[0],
         "first_verified_completion_seconds": first_completion[0],
+        "interrupted_by_trigger": triggered[0] is not None,
+        "trigger_seconds": triggered[0],
     }
 
 
@@ -313,12 +409,20 @@ def execute_arm(
     completion_check: Callable[[Path], bool] = lambda p: _run_check(p, "acceptance"),
     package_check: Callable[[Path], Dict[str, object]] = checkpoint_evidence,
     baseline_head: Optional[str] = None,
+    pack: Optional[Callable[[Path], Dict[str, object]]] = None,
 ) -> Dict[str, object]:
-    """Two fresh CLI processes in one evolving worktree; no transcript is passed."""
+    """Two fresh CLI processes in one evolving worktree; no transcript is passed.
+
+    `pack`, given only for the Handoff arm, runs at the interruption what the
+    product runs at a handoff. What the agent itself left is recorded as
+    `checkpoint_at_stop`; what the recovery session receives, as `checkpoint`.
+    """
     source = invoke("source", project, prompt, source_budget)
     progress = progress_check(project)
     complete = completion_check(project)
-    checkpoint = package_check(project)
+    checkpoint_at_stop = package_check(project)
+    packed = pack(project) if pack is not None and not complete else None
+    checkpoint = package_check(project) if packed is not None else checkpoint_at_stop
     boundary = interrupt_outcome(progress, complete)
     if progress and source.get("first_verified_progress_seconds") is None:
         source["first_verified_progress_seconds"] = source.get("elapsed_seconds")
@@ -330,12 +434,15 @@ def execute_arm(
             "outcome": boundary,
             "termination_reason": (
                 "task_completed_before_stop" if complete else
+                "progress_trigger" if source.get("interrupted_by_trigger") else
                 "source_budget_hard_stop" if source.get("timed_out") else
                 "source_process_exited_early"
             ),
             "observed_at": dt.datetime.now(dt.timezone.utc).isoformat(),
             "progress_passed": progress,
             "completion_passed": complete,
+            "checkpoint_at_stop": checkpoint_at_stop,
+            "pack": packed,
             "checkpoint": checkpoint,
         },
         "recovery": None,
@@ -443,7 +550,8 @@ def build_plan(
     arms = list(ARMS)
     random.Random("task-d-v05|%d" % seed).shuffle(arms)
     data = {
-        "schema_version": 1,
+        "schema_version": 2,
+        "interruption": dict(INTERRUPTION_POLICY),
         "pair_id": "D-" + replicate,
         "replicate": replicate,
         "seed": seed,
@@ -481,8 +589,9 @@ def _plan_manifest_hash(data: Dict[str, object]) -> str:
             "fixture_sha256", "prompt_sha256", "evaluator_sha256", "skill", "created_at",
         )
     }
-    if "replicate" in data:
-        immutable["replicate"] = data["replicate"]
+    for optional in ("replicate", "interruption"):
+        if optional in data:
+            immutable[optional] = data[optional]
     immutable["rows"] = rows
     encoded = json.dumps(immutable, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
     return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
@@ -524,8 +633,12 @@ def _read_plan(path: Path) -> Dict[str, object]:
     replicate = data.get("replicate")
     if replicate is None and data.get("pair_id") == "D-r01":
         replicate = "r01"  # v0.4 plans predate the explicit replicate field.
+    if data.get("schema_version") == 2 and data.get("interruption") != INTERRUPTION_POLICY:
+        raise ValueError("pilot plan interruption policy differs from the frozen protocol")
+    if data.get("schema_version") == 1 and "interruption" in data:
+        raise ValueError("a schema-1 pilot plan cannot carry an interruption policy")
     if (
-        data.get("schema_version") != 1
+        data.get("schema_version") not in (1, 2)
         or not isinstance(replicate, str)
         or re.fullmatch(r"r[0-9]{2,}", replicate) is None
         or data.get("pair_id") != "D-" + replicate
@@ -584,6 +697,14 @@ def validate_record(record: Dict[str, object]) -> List[str]:
         problems.append("primary success conflicts with acceptance, scope, or budget evidence")
     if set(record.get("evaluator_sha256", {})) != {"progress", "acceptance"}:
         problems.append("missing evaluator hashes")
+    interruption = result.get("interruption") if isinstance(result.get("interruption"), dict) else {}
+    # The harness renders a package only as the Handoff arm's treatment; one
+    # appearing for the Baseline arm would be the harness handing it the help
+    # the comparison is about.
+    if record.get("arm") == "baseline" and interruption.get("pack") is not None:
+        problems.append("the baseline arm must not receive a harness-rendered package")
+    if interruption.get("termination_reason") == "progress_trigger" and interruption.get("completion_passed"):
+        problems.append("a session stopped by the progress trigger cannot have completed first")
     if record.get("contamination") and any(record["contamination"].values()):
         if recovery is not None and recovery.get("primary_success"):
             problems.append("contaminated trial cannot be primary success")
@@ -713,6 +834,8 @@ def _run_live_row(plan_path: Path, row: Dict[str, object], data: Dict[str, objec
         preflights = []
         logs = {}
         contamination = {}
+        policy = interruption_policy(data)
+        triggered = policy["trigger"] == "first_progress"
 
         def invoke(phase: str, project: Path, request: str, budget: int) -> Dict[str, object]:
             visible = _preflight(
@@ -725,6 +848,12 @@ def _run_live_row(plan_path: Path, row: Dict[str, object], data: Dict[str, objec
                 project, budget, env=_git_safe_env(project),
                 progress_probe=lambda: _run_check(project, "progress"),
                 completion_probe=lambda: _run_check(project, "acceptance"),
+                probe_interval=float(policy["probe_seconds"]),
+                # Only the source session is interrupted; recovery runs to
+                # acceptance or its own budget.
+                stop_after_progress=(
+                    float(policy["grace_seconds"]) if triggered and phase == "source" else None
+                ),
                 on_start=lambda pid: set_active_child(plan_path, str(row["trial_id"]), pid),
                 on_finish=lambda: set_active_child(plan_path, str(row["trial_id"]), None),
             )
@@ -739,9 +868,13 @@ def _run_live_row(plan_path: Path, row: Dict[str, object], data: Dict[str, objec
             contamination[phase] = contamination_findings(arm, project, stdout, stderr)
             return result
 
-        result = execute_arm(workspace, prompt, invoke, baseline_head=baseline_head)
+        result = execute_arm(
+            workspace, prompt, invoke, baseline_head=baseline_head,
+            pack=pack_at_interruption if arm == "handoff" and policy["pack_handoff_arm"] else None,
+        )
         record = {
             "schema_version": 1,
+            "interruption_policy": policy,
             "trial_id": row["trial_id"],
             "arm": arm,
             "position": row["position"],
@@ -853,14 +986,25 @@ def calibrate() -> Dict[str, object]:
                 "test_output_tail": (tests.stdout + tests.stderr)[-1200:],
             }
         variants = report["variants"]
+        # Evaluator sensitivity is not enough: the reference and the partial
+        # state must also survive the scope audit a real trial is held to.
+        # Without this, v0.5 calibrated cleanly while every correct solution
+        # would have been scored out of scope.
+        for variant in ("partial", "reference"):
+            audited = base / ("audit-" + variant)
+            head = _initialize_project(audited)
+            _install_variant(audited, variant)
+            variants[variant]["scope_violations"] = scope_violations(audited, head)
         report["calibration_passed"] = bool(
             not variants["project"]["progress"]
             and not variants["project"]["acceptance"]
             and variants["partial"]["progress"]
             and not variants["partial"]["acceptance"]
+            and not variants["partial"]["scope_violations"]
             and variants["reference"]["progress"]
             and variants["reference"]["acceptance"]
             and variants["reference"]["public_tests"]
+            and not variants["reference"]["scope_violations"]
         )
     return report
 

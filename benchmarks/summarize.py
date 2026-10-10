@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import statistics
 import sys
 from pathlib import Path
@@ -19,6 +20,10 @@ from benchmarks.prepare_trial import ARMS, SNAPSHOTS, TASKS  # noqa: E402
 
 
 COHORT_KEYS = ("agent", "version", "model", "effort")
+#: A cohort is also one record schema. Schema 3 is the v0.3 cohort, run before
+#: targets were isolated; pooling it with schema 4 would mix contaminated and
+#: clean trials in one cell.
+COHORT_FIELDS = (*COHORT_KEYS, "schema")
 SUPPORTED_VERSIONS = (3, 4)
 
 #: Two passes seen in one probe round are a fraction of a second apart; two
@@ -27,17 +32,40 @@ SUPPORTED_VERSIONS = (3, 4)
 SAME_ROUND_SECONDS = 1.0
 
 
+def _normalised_version(text: str) -> str:
+    """`codex-cli 0.160.0`, `codex-cli-0.160.0` and `0.160.0` are one release.
+
+    Versions were typed by hand before the runner read them itself, and those
+    three spellings of the same Codex split one cohort into two.
+    """
+    match = re.search(r"\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.]+)?", text)
+    return match.group(0) if match else text
+
+
 def _cohort_key(record: Dict[str, Any]) -> Tuple[str, ...]:
     target = record["target"]
-    return tuple(str(target.get(key, "unrecorded")) for key in COHORT_KEYS)
+    values = [str(target.get(key, "unrecorded")) for key in COHORT_KEYS]
+    values[COHORT_KEYS.index("version")] = _normalised_version(values[COHORT_KEYS.index("version")])
+    return (*values, "v%s" % record["schema_version"])
+
+
+#: Exported snapshot records are named like `B-60-baseline-r06.json`. Anything
+#: looser also caught recovery-pilot records (`D-baseline-r01.json`) and
+#: cohort plans (`v03-post-actions-r04-….json`), which are not trials here.
+EXPORTED_RECORD = "[A-Z]-[0-9]*-*-r[0-9]*.json"
+
+
+def _hidden(path: Path, root: Path) -> bool:
+    """Under a dot-directory: scratch space, such as a sandbox's pytest temp."""
+    return any(part.startswith(".") for part in path.relative_to(root).parts[:-1])
 
 
 def _trial_paths(inputs: Sequence[Path]) -> List[Path]:
     found = set()
     for item in inputs:
         if item.is_dir():
-            found.update(item.rglob("trial.json"))
-            found.update(item.glob("*-r[0-9]*.json"))
+            found.update(path for path in item.rglob("trial.json") if not _hidden(path, item))
+            found.update(item.glob(EXPORTED_RECORD))
         elif item.is_file():
             found.add(item)
         else:
@@ -111,7 +139,7 @@ def summarize(
         progress = [trial["first_verified_progress_seconds"] for trial in separable]
         completion = [trial["completion_seconds"] for trial in completed
                       if trial.get("completion_seconds") is not None]
-        row = dict(zip((*COHORT_KEYS, "task", "snapshot", "arm"), key))
+        row = dict(zip((*COHORT_FIELDS, "task", "snapshot", "arm"), key))
         row.update({
             "trials_seen": len(trials) + excluded.get(key, 0),
             "excluded": excluded.get(key, 0),
@@ -169,7 +197,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(json.dumps(rows, indent=2))
         return 0
     columns = (
-        "agent", "version", "model", "effort", "task", "snapshot", "arm", "excluded", "accepted", "invalid",
+        "agent", "version", "model", "effort", "schema", "task", "snapshot", "arm", "excluded", "accepted", "invalid",
         "completed", "completion_rate", "progress_separable", "median_first_progress_seconds",
         "median_completion_seconds", "short_by",
     )
