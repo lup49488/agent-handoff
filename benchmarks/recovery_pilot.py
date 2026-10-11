@@ -29,7 +29,8 @@ from agent_handoff.integrity import errors as integrity_errors
 from agent_handoff.integrity import verify_package
 from agent_handoff.lock import Lock, process_alive
 from agent_handoff.store import Store, atomic_write
-from benchmarks.run_trial import _codex_home, _kill_process_tree, _skill_frontmatter_fields
+from agent_handoff.runner import PIPE_DRAIN_SECONDS
+from benchmarks.run_trial import _codex_home, _kill_process_tree, _remove_tree, _skill_frontmatter_fields
 from benchmarks.run_trial import _contamination as _shared_contamination
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -217,18 +218,24 @@ def pack_at_interruption(project: Path) -> Dict[str, object]:
         return {"ran": False, "reason": "the source session never initialised handoff tracking"}
     env = _git_safe_env(project)
     env["PYTHONPATH"] = str(ROOT / "src") + os.pathsep + env.get("PYTHONPATH", "")
-    result = subprocess.run(
-        [sys.executable, "-m", "agent_handoff", "pack", "--to", "codex"],
-        cwd=str(project), env=env, capture_output=True, text=True,
-        encoding="utf-8", errors="replace", timeout=120,
-    )
-    return {
+    evidence: Dict[str, object] = {
         "ran": True,
         "command": "handoff pack --to codex",
         "handoff_version": _handoff_version,
-        "exit_code": result.returncode,
-        "output_tail": (result.stdout + result.stderr)[-400:],
     }
+    try:
+        result = subprocess.run(
+            [sys.executable, "-m", "agent_handoff", "pack", "--to", "codex"],
+            cwd=str(project), env=env, capture_output=True, text=True,
+            encoding="utf-8", errors="replace", timeout=120,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        # Recorded, not raised: by now the source session has run and spent
+        # its quota, and a failed pack is part of what recovery starts from.
+        evidence.update(exit_code=None, error="%s: %s" % (type(exc).__name__, exc))
+        return evidence
+    evidence.update(exit_code=result.returncode, output_tail=(result.stdout + result.stderr)[-400:])
+    return evidence
 
 
 def run_bounded_process(
@@ -273,6 +280,9 @@ def run_bounded_process(
     first_progress = [None]
     first_completion = [None]
     triggered = [None]
+    # False once a kill could reach only the direct child: what it started
+    # may still be running and still changing the project after the stop.
+    tree_ended = [True]
 
     def monitor_progress():
         stop_at = None
@@ -297,7 +307,7 @@ def run_bounded_process(
             # finished is never cut off for having made progress.
             if stop_at is not None and time.monotonic() - started >= stop_at:
                 triggered[0] = round(time.monotonic() - started, 3)
-                kill_tree(proc)
+                tree_ended[0] = kill_tree(proc) is not False
                 return
 
     monitor = None
@@ -308,9 +318,18 @@ def run_bounded_process(
         try:
             stdout, stderr = proc.communicate(timeout=timeout_seconds)
         except subprocess.TimeoutExpired:
-            timed_out = True
-            kill_tree(proc)
-            stdout, stderr = proc.communicate()
+            # A session the trigger already stopped is not over budget: it
+            # only looks that way when something it started kept the pipes
+            # open until the budget ran out.
+            timed_out = triggered[0] is None
+            if kill_tree(proc) is False:
+                tree_ended[0] = False
+            try:
+                stdout, stderr = proc.communicate(timeout=PIPE_DRAIN_SECONDS)
+            except subprocess.TimeoutExpired:
+                # Never wait on descendants the kill could not reach.
+                tree_ended[0] = False
+                stdout, stderr = "", ""
     except BaseException:
         # Ctrl-C or an unexpected supervisor exception must not orphan Codex.
         try:
@@ -339,6 +358,7 @@ def run_bounded_process(
         "first_verified_completion_seconds": first_completion[0],
         "interrupted_by_trigger": triggered[0] is not None,
         "trigger_seconds": triggered[0],
+        "process_tree_terminated": tree_ended[0],
     }
 
 
@@ -701,6 +721,8 @@ def validate_record(record: Dict[str, object]) -> List[str]:
     # The harness renders a package only as the Handoff arm's treatment; one
     # appearing for the Baseline arm would be the harness handing it the help
     # the comparison is about.
+    if result.get("invalid_reason") and isinstance(recovery, dict) and recovery.get("primary_success"):
+        problems.append("an invalid trial cannot be primary success")
     if record.get("arm") == "baseline" and interruption.get("pack") is not None:
         problems.append("the baseline arm must not receive a harness-rendered package")
     if interruption.get("termination_reason") == "progress_trigger" and interruption.get("completion_passed"):
@@ -827,7 +849,12 @@ def _run_live_row(plan_path: Path, row: Dict[str, object], data: Dict[str, objec
     if _fixture_digest() != data["fixture_sha256"] or _sha256(FIXTURE / "prompt.md") != data["prompt_sha256"]:
         raise RuntimeError("fixture or prompt differs from the pre-registered plan")
 
-    with tempfile.TemporaryDirectory(prefix="recovery-pilot-") as temp:
+    # Not TemporaryDirectory: on Windows a directory is locked while any
+    # process sits in it, so a descendant the stop could not reach would make
+    # the cleanup raise after the record was written, and the row would be
+    # failed over a temporary folder.
+    temp = tempfile.mkdtemp(prefix="recovery-pilot-")
+    try:
         workspace = Path(temp) / "project"
         baseline_head = _initialize_project(workspace)
         prompt = (FIXTURE / "prompt.md").read_text(encoding="utf-8")
@@ -904,11 +931,25 @@ def _run_live_row(plan_path: Path, row: Dict[str, object], data: Dict[str, objec
             recovery_result = record["result"].get("recovery")
             if recovery_result is not None:
                 recovery_result["primary_success"] = False
+        phases = (record["result"].get("source") or {}, record["result"].get("recovery") or {})
+        if any(phase.get("process_tree_terminated") is False for phase in phases):
+            # Something a session started outlived the stop. It may have kept
+            # changing the project after the interruption, so the state
+            # recovery began from is not the state the boundary recorded.
+            record["result"]["invalid_reason"] = "process_tree_not_terminated"
+            recovery_result = record["result"].get("recovery")
+            if recovery_result is not None:
+                recovery_result["primary_success"] = False
         problems = validate_record(record)
         if problems:
             raise ValueError("trial record failed validation: " + "; ".join(problems))
         atomic_write(destination, json.dumps(record, ensure_ascii=False, indent=2) + "\n")
         return record
+    finally:
+        try:
+            _remove_tree(Path(temp))
+        except OSError as exc:
+            print("warning: left pilot workspace %s in place (%s)" % (temp, exc), file=sys.stderr)
 
 
 def launch_next(path: Path) -> Dict[str, object]:
@@ -929,7 +970,7 @@ def launch_next(path: Path) -> Dict[str, object]:
         atomic_write(failure_path, json.dumps(failure, ensure_ascii=False, indent=2) + "\n")
         finish_row(path, str(row["trial_id"]), "invalid")
         raise
-    finish_row(path, str(row["trial_id"]), "recorded")
+    finish_row(path, str(row["trial_id"]), "invalid" if record["result"].get("invalid_reason") else "recorded")
     return record
 
 

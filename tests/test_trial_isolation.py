@@ -352,3 +352,57 @@ def test_a_claude_baseline_running_handoff_through_bash_is_contaminated(tmp_path
 
     assert runner._contamination("baseline", tmp_path, stdout, "") == ["ran the handoff CLI"]
 
+
+
+# -- what the harness waits for ----------------------------------------------
+
+LEAVES_A_WORKER = (
+    "import subprocess, sys; print('done', flush=True); "
+    "subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)'])"
+)
+
+
+def test_a_target_that_leaves_a_worker_is_not_waited_for(tmp_path, monkeypatch):
+    """The worker holds the pipes; the old wait sat out the whole budget for it."""
+    import subprocess
+    import time
+
+    monkeypatch.setattr(runner, "PIPE_DRAIN_SECONDS", 1.0)
+    process = subprocess.Popen([sys.executable, "-c", LEAVES_A_WORKER],
+                               stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    started = time.monotonic()
+
+    _, _, exceeded, tree_ended = runner._wait_for_target(process, 60, started)
+
+    assert time.monotonic() - started < 15
+    assert exceeded is False      # the target finished; it was not over budget
+    assert tree_ended is False    # but something it started is still running
+
+
+def test_a_trial_whose_process_tree_outlived_the_target_is_excluded(tmp_path, monkeypatch):
+    """A surviving worker may still change files, and the logs are incomplete."""
+    monkeypatch.setattr(runner, "PIPE_DRAIN_SECONDS", 1.0)
+    fake_target(monkeypatch, LEAVES_A_WORKER)
+
+    record = launch(tmp_path)
+
+    assert record["accepted"] is False
+    assert record["invalid_reason"] == "process_tree_not_terminated"
+    assert validate(record) == []
+
+
+def test_the_version_is_read_from_the_executable_the_adapter_launches(monkeypatch):
+    """A config table can point an agent at another program than `codex`."""
+    import subprocess
+
+    class Adapter:
+        executable = "my-codex"
+
+    calls = []
+    monkeypatch.setattr(runner.registry, "get", lambda target, root: Adapter())
+    monkeypatch.setattr(runner.shutil, "which", lambda name: "/opt/bin/" + name)
+    monkeypatch.setattr(runner.subprocess, "run",
+                        lambda argv, **kw: calls.append(argv) or subprocess.CompletedProcess(argv, 0, "my-codex 1.2.3\n", ""))
+
+    assert runner._installed_version("codex") == "my-codex 1.2.3"
+    assert calls == [["/opt/bin/my-codex", "--version"]]

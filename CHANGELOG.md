@@ -13,6 +13,34 @@ is still below 1.0, so the interface may still change.
 
 ### Fixed
 
+- `handoff run` could wait forever for an agent that had already exited. Its
+  output pipes close only when every process holding them has, so a worker the
+  agent left in the background — or a descendant a refused `taskkill` could not
+  reach — kept the supervisor joined on its readers, and the fallback agent
+  never started. Output is now read for at most ten seconds after the agent
+  exits, with what arrived by then kept. `_kill_process_tree` now reports
+  whether the whole tree is known to be gone.
+
+- The benchmark harnesses had the same wait, and worse consequences. A worker
+  holding the pipes made `run_trial.py` sit out the whole wall-clock budget
+  and then record the trial as over budget; after a kill that could not reach
+  the whole tree, its second wait had no bound. In the recovery pilot, a
+  session stopped by the progress trigger was recorded as timed out, and a
+  surviving descendant could go on changing the project after the
+  interruption. Both now wait boundedly, and a trial whose process tree
+  outlived the stop is excluded (`process_tree_not_terminated`): neither the
+  workspace nor the logs the contamination scan reads can be trusted. A
+  workspace such a process still sits in — locked, on Windows — no longer
+  fails a trial whose record was already written.
+
+- A `handoff pack` that errored at the interruption would have discarded the
+  whole recovery-pilot trial after its source session had spent quota. The
+  error is now recorded and recovery starts from whatever exists.
+
+- `run_trial.py` read the CLI version from `codex` or `claude` on PATH, though
+  a config table can launch the agent from another executable. It now asks
+  the executable the adapter will actually run.
+
 - Every correct v0.5 recovery would have been scored out of scope. The
   recovery pilot's hand-written list of files a target may change left out
   `schema.py`, which the v0.5 prompt tells the target to edit and the

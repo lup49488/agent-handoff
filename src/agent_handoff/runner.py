@@ -109,6 +109,10 @@ def initial_prompt(request: str, with_protocol: bool = True) -> str:
 #: How often the supervisor checks on a running agent.
 POLL_SECONDS = 1.0
 
+#: How long to keep reading an agent's output after it has exited. Pipes stay
+#: open while any descendant holds them; past this, the supervisor moves on.
+PIPE_DRAIN_SECONDS = 10.0
+
 #: Total silence for this long means a wedged agent, not a thinking one.
 DEFAULT_STALL_TIMEOUT = 900.0
 
@@ -158,8 +162,13 @@ def _capture(stream, path: Path, collected: List[str], echo, touch=None) -> None
     stream.close()
 
 
-def _kill_process_tree(process) -> None:
-    """Stop a stalled agent and every child it launched before failing over."""
+def _kill_process_tree(process) -> bool:
+    """Stop a stalled agent and every child it launched before failing over.
+
+    Returns whether the whole tree is known to be gone. False means only the
+    direct child could be stopped: its descendants may still be running, may
+    still hold its output pipes, and may still be changing files.
+    """
     if os.name == "nt":
         # `Popen.kill()` only kills the wrapper process. Coding CLIs often
         # spawn workers, so taskkill's /T is the first choice. Sandboxed or
@@ -173,14 +182,19 @@ def _kill_process_tree(process) -> None:
             )
         except OSError:
             result = None
-        if result is None or result.returncode != 0:
-            if process.poll() is None:
-                process.kill()
-        return
+        if result is not None and result.returncode == 0:
+            return True
+        if process.poll() is None:
+            process.kill()
+        return False
     try:
         os.killpg(process.pid, signal.SIGKILL)
-    except (ProcessLookupError, PermissionError, AttributeError):
+        return True
+    except ProcessLookupError:
+        return True  # the whole group had already gone
+    except (PermissionError, AttributeError):
         process.kill()
+        return False
 
 
 def _drain(
@@ -200,14 +214,18 @@ def _drain(
     def touch() -> None:
         activity[0] = time.monotonic()
 
+    # Daemon threads: a reader still blocked on a pipe that a surviving
+    # descendant holds open must not keep the supervisor alive at exit.
     readers = [
         threading.Thread(
             target=_capture,
             args=(process.stdout, store.logs_dir / "stdout.log", stdout, sys.stdout, touch),
+            daemon=True,
         ),
         threading.Thread(
             target=_capture,
             args=(process.stderr, store.logs_dir / "stderr.log", stderr, sys.stderr, touch),
+            daemon=True,
         ),
     ]
     for reader in readers:
@@ -232,8 +250,14 @@ def _drain(
                     exit_code = process.wait()
                 break
 
+    # The agent has exited, but its pipes close only when every process
+    # holding them has: a worker it left running in the background, or a
+    # descendant the tree kill could not reach. Waiting on those without a
+    # bound held `handoff run` here forever and the fallback never started.
+    # Output read so far is kept; whatever arrives later is not waited for.
+    deadline = time.monotonic() + PIPE_DRAIN_SECONDS
     for reader in readers:
-        reader.join()
+        reader.join(timeout=max(0.0, deadline - time.monotonic()))
     return exit_code, "".join(stdout), "".join(stderr), stalled
 
 

@@ -238,3 +238,66 @@ def test_calibration_holds_the_reference_to_the_scope_audit():
 
     assert variants["reference"]["scope_violations"] == []
     assert variants["partial"]["scope_violations"] == []
+
+
+# -- a stop that cannot reach the whole process tree ---------------------------
+
+
+def kill_direct_child_only(proc):
+    """As in a sandbox that refuses taskkill: the child goes, its worker stays."""
+    proc.kill()
+    return False
+
+
+def test_a_trigger_stop_is_not_waited_out_or_called_a_timeout(tmp_path, monkeypatch):
+    """A worker holding the pipes kept the harness waiting for the whole budget,
+    and the triggered session was then recorded as having run out of time."""
+    monkeypatch.setattr(pilot, "PIPE_DRAIN_SECONDS", 1.0)
+    leaves_worker = [sys.executable, "-c",
+                     "import subprocess, sys, time; "
+                     "subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(20)']); "
+                     "time.sleep(60)"]
+    started = time.monotonic()
+    result = pilot.run_bounded_process(
+        leaves_worker, tmp_path, 4,
+        progress_probe=counting([False, True]), completion_probe=lambda: False,
+        probe_interval=0.2, stop_after_progress=0, kill_tree=kill_direct_child_only,
+    )
+
+    assert time.monotonic() - started < 15
+    assert result["interrupted_by_trigger"] is True
+    assert result["timed_out"] is False
+    assert result["process_tree_terminated"] is False
+
+
+def test_an_invalid_trial_cannot_be_primary_success():
+    record = {
+        "schema_version": 1, "arm": "handoff",
+        "evaluator_sha256": {"progress": "a", "acceptance": "b"},
+        "preflights": [{"phase": "source", "visible_user_skills": ["agent-handoff"]}],
+        "result": {
+            "source": {"process_tree_terminated": False},
+            "invalid_reason": "process_tree_not_terminated",
+            "interruption": {"completion_passed": False, "termination_reason": "progress_trigger"},
+            "recovery": {"primary_success": True, "acceptance_passed": True,
+                         "scope_violations": [], "within_budget": True},
+        },
+    }
+
+    assert "an invalid trial cannot be primary success" in pilot.validate_record(record)
+
+
+def test_a_pack_that_errors_is_recorded_not_raised(tmp_path, monkeypatch):
+    """By the time of the pack, the source session has already spent its quota."""
+    (tmp_path / ".agent-handoff").mkdir()
+
+    def times_out(*args, **kwargs):
+        raise subprocess.TimeoutExpired("handoff pack", 120)
+
+    monkeypatch.setattr(pilot.subprocess, "run", times_out)
+
+    result = pilot.pack_at_interruption(tmp_path)
+
+    assert result["ran"] is True
+    assert result["exit_code"] is None
+    assert "TimeoutExpired" in result["error"]

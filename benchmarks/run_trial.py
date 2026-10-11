@@ -31,7 +31,7 @@ for _path in (ROOT / "src", ROOT):
 
 from agent_handoff import __version__, gitinfo  # noqa: E402
 from agent_handoff.adapters import registry  # noqa: E402
-from agent_handoff.runner import _kill_process_tree  # noqa: E402
+from agent_handoff.runner import PIPE_DRAIN_SECONDS, _kill_process_tree  # noqa: E402
 from benchmarks import plan as plan_mod  # noqa: E402
 from benchmarks.plan import arm_order  # noqa: E402
 from benchmarks.prepare_trial import ARMS, SNAPSHOTS, TASKS, prepare, snapshot_files  # noqa: E402
@@ -500,12 +500,48 @@ def _package_stayed_out_of_git(project: Path) -> bool:
     return not (seen & package_paths)
 
 
-_EXECUTABLES = {"codex": "codex", "claude-code": "claude"}
+def _wait_for_target(process, wall_seconds: float, started: float) -> Tuple[str, str, bool, bool]:
+    """Wait for the target within its budget, but never for its descendants.
+
+    Returns its stdout and stderr, whether the budget ran out, and whether
+    the whole process tree is known to have ended. A target's pipes close
+    only when every process holding them has: a worker it left in the
+    background kept `communicate()` waiting for the whole wall-clock budget
+    and then reported the trial as over budget, and after a kill that could
+    not reach the whole tree, the second `communicate()` had no bound at all.
+    """
+    exited_at = None
+    while True:
+        try:
+            stdout, stderr = process.communicate(timeout=1.0)
+            return stdout, stderr, False, True
+        except subprocess.TimeoutExpired:
+            now = time.monotonic()
+            if process.poll() is not None:
+                exited_at = now if exited_at is None else exited_at
+                if now - exited_at >= PIPE_DRAIN_SECONDS:
+                    return "", "", False, False
+            elif now - started >= wall_seconds:
+                tree_ended = _kill_process_tree(process)
+                try:
+                    stdout, stderr = process.communicate(timeout=PIPE_DRAIN_SECONDS)
+                except subprocess.TimeoutExpired:
+                    return "", "", True, False
+                return stdout, stderr, True, tree_ended
 
 
 def _installed_version(target: str) -> Optional[str]:
-    """What the target CLI on PATH reports as its version, or None."""
-    executable = shutil.which(_EXECUTABLES[target])
+    """What the CLI the target will actually be launched with reports, or None.
+
+    Resolved through the adapter, not a fixed name: a config table can point
+    an agent at a different executable, and reading `codex` off PATH would
+    then record one program's version for a trial another program ran.
+    """
+    try:
+        command = registry.get(target, ROOT).executable
+    except Exception:  # an unknown or misconfigured adapter has no version to read
+        return None
+    executable = shutil.which(command) if command else None
     if executable is None:
         return None
     try:
@@ -573,7 +609,14 @@ def _collect(source: Path, destination: Path, workspace: Path) -> None:
     """
     destination.parent.mkdir(parents=True, exist_ok=True)
     shutil.copytree(source, destination)
-    _remove_tree(workspace)
+    try:
+        _remove_tree(workspace)
+    except OSError as exc:
+        # The evidence is already at `destination`. What cannot be removed is
+        # held by a process the target left running — on Windows a working
+        # directory is locked while any process sits in it — and failing the
+        # trial over the cleanup would throw away a record already written.
+        print("warning: left temporary workspace %s in place (%s)" % (workspace, exc), file=sys.stderr)
 
 
 def run_trial(
@@ -740,17 +783,22 @@ def _launch(trial, task: str, snapshot: str, target: str, arm: str, model: str, 
             "invalid_reason": "target_not_started",
         }
 
-    exceeded = False
     with _MetricProbe(
         trial.project, task, snapshot, started, progress_passed_at_start=progress_passed_at_start
     ) as probe:
-        try:
-            stdout, stderr = process.communicate(timeout=wall_seconds)
-        except subprocess.TimeoutExpired:
-            exceeded = True
-            _kill_process_tree(process)
-            stdout, stderr = process.communicate()
+        stdout, stderr, exceeded, tree_ended = _wait_for_target(process, wall_seconds, started)
     elapsed = round(time.monotonic() - started, 3)
+    if not tree_ended:
+        # Something the target started is still running: it may still be
+        # changing the project, and the logs the contamination scan reads are
+        # incomplete. Neither the measurement nor the scan can be trusted.
+        return {
+            "initial_checks": {"progress_passed": progress_passed_at_start, "completion_passed": False},
+            "agent_exit_seconds": elapsed,
+            "target_exit_code": process.returncode,
+            "process_tree_terminated": False,
+            "invalid_reason": "process_tree_not_terminated",
+        }
     (trial.root / "target.stdout.log").write_text(stdout or "", encoding="utf-8")
     (trial.root / "target.stderr.log").write_text(stderr or "", encoding="utf-8")
 
