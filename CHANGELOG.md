@@ -13,6 +13,15 @@ is still below 1.0, so the interface may still change.
 
 ### Fixed
 
+- On Linux and macOS, `_kill_process_tree` reported a process killed without
+  killing it. `killpg` finds a group only when the process leads one; for a
+  process started outside its own session it raises ProcessLookupError, and
+  the previous change treated that as "the whole group had already gone".
+  Every POSIX CI job failed. It now falls back to the direct child and reports
+  the kill as partial. The benchmark harnesses also start their targets in
+  their own session on POSIX, as the product's adapters always have, so a
+  group kill reaches everything a target started.
+
 - `handoff run` could wait forever for an agent that had already exited. Its
   output pipes close only when every process holding them has, so a worker the
   agent left in the background — or a descendant a refused `taskkill` could not

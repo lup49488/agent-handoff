@@ -500,6 +500,13 @@ def _package_stayed_out_of_git(project: Path) -> bool:
     return not (seen & package_paths)
 
 
+#: On POSIX a target is started as the leader of its own session, as the
+#: product's adapters start agents, so that a group kill reaches everything it
+#: started. Without it there is no group to kill and only the direct child can
+#: be stopped. Windows needs nothing: `taskkill /T` follows the tree itself.
+TREE_LAUNCH: Dict[str, Any] = {} if os.name == "nt" else {"start_new_session": True}
+
+
 def _wait_for_target(process, wall_seconds: float, started: float) -> Tuple[str, str, bool, bool]:
     """Wait for the target within its budget, but never for its descendants.
 
@@ -774,7 +781,7 @@ def _launch(trial, task: str, snapshot: str, target: str, arm: str, model: str, 
             _target_argv(adapter, prompt, target, model, effort),
             cwd=str(trial.project), stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
-            encoding="utf-8", errors="replace",
+            encoding="utf-8", errors="replace", **TREE_LAUNCH,
         )
     except OSError as exc:
         (trial.root / "target.stderr.log").write_text(str(exc) + "\n", encoding="utf-8")

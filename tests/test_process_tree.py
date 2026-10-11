@@ -83,3 +83,38 @@ def test_the_kill_reports_whether_the_whole_tree_is_known_gone(monkeypatch):
         assert runner._kill_process_tree(process) is False  # only the direct child
     finally:
         process.wait(timeout=5)
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX process groups")
+def test_a_process_outside_its_own_session_is_still_killed():
+    """`killpg` finds no group to kill; reporting success there left it running."""
+    process = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
+    try:
+        assert runner._kill_process_tree(process) is False  # only the direct child was reachable
+        assert process.wait(timeout=5) is not None
+    finally:
+        if process.poll() is None:
+            process.kill()
+            process.wait(timeout=5)
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX process groups")
+def test_a_session_leader_is_killed_with_everything_it_started(tmp_path):
+    import time
+
+    marker = tmp_path / "worker-alive"
+    process = subprocess.Popen(
+        [sys.executable, "-c",
+         "import subprocess, sys, time; "
+         "subprocess.Popen([sys.executable, '-c', "
+         "'import pathlib, time\nfor _ in range(100): pathlib.Path(%r).touch(); time.sleep(0.1)']); "
+         "time.sleep(60)" % str(marker)],
+        start_new_session=True,
+    )
+    time.sleep(1.0)
+    assert runner._kill_process_tree(process) is True
+    process.wait(timeout=5)
+    marker.unlink(missing_ok=True)
+    time.sleep(0.5)
+
+    assert not marker.exists()  # the worker died with its group

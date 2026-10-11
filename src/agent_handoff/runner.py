@@ -187,14 +187,18 @@ def _kill_process_tree(process) -> bool:
         if process.poll() is None:
             process.kill()
         return False
+    # The group exists only if the process leads one, which a launch with
+    # `start_new_session` arranges. Without that, `killpg` finds no group —
+    # ProcessLookupError — and reporting success there left the process
+    # running while claiming its whole tree was gone.
     try:
         os.killpg(process.pid, signal.SIGKILL)
         return True
-    except ProcessLookupError:
-        return True  # the whole group had already gone
-    except (PermissionError, AttributeError):
+    except (ProcessLookupError, PermissionError, AttributeError):
+        pass
+    if process.poll() is None:
         process.kill()
-        return False
+    return False
 
 
 def _drain(

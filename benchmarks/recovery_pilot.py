@@ -30,7 +30,7 @@ from agent_handoff.integrity import verify_package
 from agent_handoff.lock import Lock, process_alive
 from agent_handoff.store import Store, atomic_write
 from agent_handoff.runner import PIPE_DRAIN_SECONDS
-from benchmarks.run_trial import _codex_home, _kill_process_tree, _remove_tree, _skill_frontmatter_fields
+from benchmarks.run_trial import TREE_LAUNCH, _codex_home, _kill_process_tree, _remove_tree, _skill_frontmatter_fields
 from benchmarks.run_trial import _contamination as _shared_contamination
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -261,7 +261,7 @@ def run_bounded_process(
     proc = popen(
         list(argv), cwd=str(cwd), stdin=subprocess.DEVNULL,
         stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
-        encoding="utf-8", errors="replace", env=env,
+        encoding="utf-8", errors="replace", env=env, **TREE_LAUNCH,
     )
     if on_start is not None:
         try:
