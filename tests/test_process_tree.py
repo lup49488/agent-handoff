@@ -98,23 +98,86 @@ def test_a_process_outside_its_own_session_is_still_killed():
             process.wait(timeout=5)
 
 
-@pytest.mark.skipif(os.name == "nt", reason="POSIX process groups")
-def test_a_session_leader_is_killed_with_everything_it_started(tmp_path):
+def start_leader_with_worker(tmp_path, leader_lingers):
+    """A session leader that starts a worker which touches a marker until killed.
+
+    Scripts go in files: an earlier version built the worker's code as a
+    nested `-c` string, its newline became a real one, and the leader died of
+    a SyntaxError before the test began — passing on Linux by accident.
+    """
     import time
 
     marker = tmp_path / "worker-alive"
-    process = subprocess.Popen(
-        [sys.executable, "-c",
-         "import subprocess, sys, time; "
-         "subprocess.Popen([sys.executable, '-c', "
-         "'import pathlib, time\nfor _ in range(100): pathlib.Path(%r).touch(); time.sleep(0.1)']); "
-         "time.sleep(60)" % str(marker)],
-        start_new_session=True,
+    worker = tmp_path / "worker.py"
+    worker.write_text(
+        "import pathlib, time\n"
+        "for _ in range(300):\n"
+        "    pathlib.Path(%r).touch()\n"
+        "    time.sleep(0.1)\n" % str(marker),
+        encoding="utf-8",
     )
-    time.sleep(1.0)
-    assert runner._kill_process_tree(process) is True
-    process.wait(timeout=5)
+    leader = tmp_path / "leader.py"
+    leader.write_text(
+        "import subprocess, sys, time\n"
+        "subprocess.Popen([sys.executable, %r])\n"
+        "time.sleep(%d)\n" % (str(worker), 60 if leader_lingers else 0),
+        encoding="utf-8",
+    )
+    process = subprocess.Popen([sys.executable, str(leader)], start_new_session=True)
+    deadline = time.monotonic() + 10
+    while not marker.exists() and time.monotonic() < deadline:
+        time.sleep(0.05)
+    assert marker.exists(), "the worker never started"
+    return process, marker
+
+
+def worker_stopped(marker):
+    import time
+
     marker.unlink(missing_ok=True)
     time.sleep(0.5)
+    return not marker.exists()
 
-    assert not marker.exists()  # the worker died with its group
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX process groups")
+def test_a_session_leader_is_killed_with_everything_it_started(tmp_path):
+    process, marker = start_leader_with_worker(tmp_path, leader_lingers=True)
+
+    assert runner._kill_process_tree(process) is True
+    process.wait(timeout=5)
+    assert worker_stopped(marker)
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX process groups")
+def test_a_worker_outliving_its_exited_leader_is_still_killed(tmp_path):
+    """The leader exits on its own, unreaped; its worker is still in the group."""
+    import time
+
+    process, marker = start_leader_with_worker(tmp_path, leader_lingers=False)
+    time.sleep(0.5)  # the leader has exited but nothing has reaped it
+
+    assert runner._kill_process_tree(process) is True
+    assert worker_stopped(marker)
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX process groups")
+def test_macos_refusal_to_signal_an_unreaped_leaders_group_is_retried(tmp_path, monkeypatch):
+    """macOS raises PermissionError where Linux signals the group; reap and retry."""
+    import time
+
+    process, marker = start_leader_with_worker(tmp_path, leader_lingers=False)
+    time.sleep(0.5)
+    real_killpg = runner.os.killpg
+    calls = []
+
+    def like_macos(pgid, sig):
+        calls.append(pgid)
+        if process.returncode is None:  # leader not reaped yet
+            raise PermissionError(1, "Operation not permitted")
+        real_killpg(pgid, sig)
+
+    monkeypatch.setattr(runner.os, "killpg", like_macos)
+
+    assert runner._kill_process_tree(process) is True
+    assert len(calls) == 2
+    assert worker_stopped(marker)

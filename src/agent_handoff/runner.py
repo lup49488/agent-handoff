@@ -194,7 +194,21 @@ def _kill_process_tree(process) -> bool:
     try:
         os.killpg(process.pid, signal.SIGKILL)
         return True
-    except (ProcessLookupError, PermissionError, AttributeError):
+    except PermissionError:
+        # macOS refuses to signal a group whose leader has exited but not yet
+        # been reaped; Linux does not. The workers that leader started are
+        # still in the group, so reap the leader and signal what remains. A
+        # group id stays reserved while any member lives, so the retry cannot
+        # reach an unrelated process.
+        if process.poll() is not None:
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+                return True
+            except ProcessLookupError:
+                return True  # nothing else was left in the group
+            except PermissionError:
+                pass
+    except (ProcessLookupError, AttributeError):
         pass
     if process.poll() is None:
         process.kill()

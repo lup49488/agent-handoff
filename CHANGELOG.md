@@ -13,6 +13,15 @@ is still below 1.0, so the interface may still change.
 
 ### Fixed
 
+- On macOS, a worker could outlive the kill of the agent that started it.
+  When the agent had already exited but not been reaped, macOS refuses to
+  signal its process group (`PermissionError`), where Linux signals it; the
+  worker still in that group was left running. The leader is now reaped and
+  the group signalled again. Found because a new test built its worker from a
+  nested `-c` string whose newline became a real one: the leader died of a
+  SyntaxError, Linux killed the group anyway and the test passed by accident,
+  and macOS did not. Test scripts now go in files.
+
 - On Linux and macOS, `_kill_process_tree` reported a process killed without
   killing it. `killpg` finds a group only when the process leads one; for a
   process started outside its own session it raises ProcessLookupError, and
