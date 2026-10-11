@@ -162,12 +162,20 @@ def _kill_process_tree(process) -> None:
     """Stop a stalled agent and every child it launched before failing over."""
     if os.name == "nt":
         # `Popen.kill()` only kills the wrapper process. Coding CLIs often
-        # spawn workers, so taskkill's /T is required before the fallback runs.
-        subprocess.run(
-            ["taskkill", "/PID", str(process.pid), "/T", "/F"],
-            capture_output=True,
-            check=False,
-        )
+        # spawn workers, so taskkill's /T is the first choice. Sandboxed or
+        # restricted Windows environments can reject taskkill; do not silently
+        # leave the direct child running in that case.
+        try:
+            result = subprocess.run(
+                ["taskkill", "/PID", str(process.pid), "/T", "/F"],
+                capture_output=True,
+                check=False,
+            )
+        except OSError:
+            result = None
+        if result is None or result.returncode != 0:
+            if process.poll() is None:
+                process.kill()
         return
     try:
         os.killpg(process.pid, signal.SIGKILL)
