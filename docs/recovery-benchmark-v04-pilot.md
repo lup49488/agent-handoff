@@ -10,8 +10,12 @@ under that protocol yet.
 
 ## Why a new pilot
 
-The current Snapshot 60 cohort has three accepted Baseline/Handoff pairs per
-task. All 18 trials completed. It therefore shows no completion-rate
+The current Snapshot 60 cohort, run after isolation, has four accepted
+Baseline/Handoff pairs for task A (r03, r04, r11, r12) and three each for B and
+C (r10–r12). All 20 trials completed. The A-60 r03 pair belongs to no surviving
+plan file but meets the same bar as the rest: schema 4, neutral workspace,
+passed preflight, and no contamination when its logs are re-scanned. It
+therefore shows no completion-rate
 separation, and completion-time differences are mostly within the runner's
 five-second probe interval. The current Handoff condition starts with a
 prepared `.agent-handoff/` package; the Codex isolation configuration disables
