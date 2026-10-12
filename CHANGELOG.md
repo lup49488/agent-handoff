@@ -13,6 +13,16 @@ is still below 1.0, so the interface may still change.
 
 ### Fixed
 
+- Ctrl-C stopped `handoff run` but not its agent. Adapters start the agent
+  in its own session (POSIX) or process group (Windows) so its whole tree can
+  be killed, which also keeps a terminal's Ctrl-C from reaching it — Windows
+  disables Ctrl+C for a new group outright. Interrupting the supervisor left
+  the agent running unsupervised, spending quota and editing the repository.
+  The supervisor now kills the agent's tree before letting any interruption
+  through. `run_trial.py` had the same gap once it, too, began starting
+  targets in their own session on POSIX; it is closed the same way. Checked
+  on Linux with a real SIGINT.
+
 - On macOS, a worker could outlive the kill of the agent that started it.
   When the agent had already exited but not been reaped, macOS refuses to
   signal its process group (`PermissionError`), where Linux signals it; the

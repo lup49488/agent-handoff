@@ -518,23 +518,31 @@ def _wait_for_target(process, wall_seconds: float, started: float) -> Tuple[str,
     not reach the whole tree, the second `communicate()` had no bound at all.
     """
     exited_at = None
-    while True:
-        try:
-            stdout, stderr = process.communicate(timeout=1.0)
-            return stdout, stderr, False, True
-        except subprocess.TimeoutExpired:
-            now = time.monotonic()
-            if process.poll() is not None:
-                exited_at = now if exited_at is None else exited_at
-                if now - exited_at >= PIPE_DRAIN_SECONDS:
-                    return "", "", False, False
-            elif now - started >= wall_seconds:
-                tree_ended = _kill_process_tree(process)
-                try:
-                    stdout, stderr = process.communicate(timeout=PIPE_DRAIN_SECONDS)
-                except subprocess.TimeoutExpired:
-                    return "", "", True, False
-                return stdout, stderr, True, tree_ended
+    try:
+        while True:
+            try:
+                stdout, stderr = process.communicate(timeout=1.0)
+                return stdout, stderr, False, True
+            except subprocess.TimeoutExpired:
+                now = time.monotonic()
+                if process.poll() is not None:
+                    exited_at = now if exited_at is None else exited_at
+                    if now - exited_at >= PIPE_DRAIN_SECONDS:
+                        return "", "", False, False
+                elif now - started >= wall_seconds:
+                    tree_ended = _kill_process_tree(process)
+                    try:
+                        stdout, stderr = process.communicate(timeout=PIPE_DRAIN_SECONDS)
+                    except subprocess.TimeoutExpired:
+                        return "", "", True, False
+                    return stdout, stderr, True, tree_ended
+    except BaseException:
+        # A target launched in its own session (TREE_LAUNCH) never receives
+        # the terminal's Ctrl-C, so stopping the harness used to leave it
+        # running and spending quota. Take it down before letting go.
+        if process.poll() is None:
+            _kill_process_tree(process)
+        raise
 
 
 def _installed_version(target: str) -> Optional[str]:

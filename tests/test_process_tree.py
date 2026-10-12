@@ -193,3 +193,59 @@ def test_macos_refusal_to_signal_an_unreaped_leaders_group_is_retried(tmp_path, 
     assert runner._kill_process_tree(process) is True
     assert len(calls) == 2
     assert worker_stopped(marker)
+
+
+# -- stopping the supervisor stops the agent -----------------------------------
+
+
+def start_agent_like_an_adapter():
+    """Launched with the flags the adapters use, which keep Ctrl-C away from it."""
+    options = (
+        {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if os.name == "nt"
+        else {"start_new_session": True}
+    )
+    return subprocess.Popen(
+        [sys.executable, "-c", "import time; time.sleep(60)"],
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, **options,
+    )
+
+
+def ctrl_c(*args, **kwargs):
+    raise KeyboardInterrupt
+
+
+def test_interrupting_handoff_run_takes_the_agent_down_with_it(tmp_path):
+    """Ctrl-C stopped the supervisor and left the agent running unsupervised."""
+    from agent_handoff.models import Task
+    from agent_handoff.store import Store
+
+    store = Store(tmp_path)
+    store.init(Task(original_request="t", source_agent="codex", fallback_agent="claude-code"))
+    store.logs_dir.mkdir(parents=True, exist_ok=True)
+    agent = start_agent_like_an_adapter()
+    agent.wait = ctrl_c  # the Ctrl-C lands while the supervisor waits
+    try:
+        with pytest.raises(KeyboardInterrupt):
+            runner._drain(store, agent)
+        assert subprocess.Popen.wait(agent, timeout=10) is not None
+    finally:
+        if agent.poll() is None:
+            agent.kill()
+            subprocess.Popen.wait(agent, timeout=5)
+
+
+def test_interrupting_a_benchmark_trial_takes_the_target_down_with_it():
+    import time
+
+    from benchmarks import run_trial
+
+    target = start_agent_like_an_adapter()
+    target.communicate = ctrl_c
+    try:
+        with pytest.raises(KeyboardInterrupt):
+            run_trial._wait_for_target(target, 60, time.monotonic())
+        assert subprocess.Popen.wait(target, timeout=10) is not None
+    finally:
+        if target.poll() is None:
+            target.kill()
+            subprocess.Popen.wait(target, timeout=5)

@@ -250,23 +250,34 @@ def _drain(
         reader.start()
 
     stalled = False
-    while True:
-        try:
-            exit_code = process.wait(timeout=POLL_SECONDS)
-            break
-        except subprocess.TimeoutExpired:
-            if stall_timeout and (time.monotonic() - activity[0]) > stall_timeout:
-                stalled = True
-                _kill_process_tree(process)
-                # Process-tree tools can fail or return before the direct
-                # child observes termination. Never let the recovery path
-                # itself wait forever; the direct child is the final fallback.
-                try:
-                    exit_code = process.wait(timeout=5)
-                except subprocess.TimeoutExpired:
-                    process.kill()
-                    exit_code = process.wait()
+    try:
+        while True:
+            try:
+                exit_code = process.wait(timeout=POLL_SECONDS)
                 break
+            except subprocess.TimeoutExpired:
+                if stall_timeout and (time.monotonic() - activity[0]) > stall_timeout:
+                    stalled = True
+                    _kill_process_tree(process)
+                    # Process-tree tools can fail or return before the direct
+                    # child observes termination. Never let the recovery path
+                    # itself wait forever; the direct child is the final fallback.
+                    try:
+                        exit_code = process.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        process.kill()
+                        exit_code = process.wait()
+                    break
+    except BaseException:
+        # Ctrl-C, or anything else that stops the supervisor. The agent runs
+        # in its own session (POSIX) or process group (Windows) so that its
+        # whole tree can be killed — which also means a terminal's Ctrl-C
+        # never reaches it, and Windows disables Ctrl+C for a new group
+        # outright. Left alone it ran on unsupervised, spending quota and
+        # editing the repository, after the user had stopped `handoff run`.
+        if process.poll() is None:
+            _kill_process_tree(process)
+        raise
 
     # The agent has exited, but its pipes close only when every process
     # holding them has: a worker it left running in the background, or a
