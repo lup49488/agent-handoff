@@ -72,10 +72,22 @@ def test_a_worker_left_holding_the_pipes_does_not_hold_the_supervisor(tmp_path, 
 @pytest.mark.skipif(os.name != "nt", reason="Windows taskkill fallback")
 def test_the_kill_reports_whether_the_whole_tree_is_known_gone(monkeypatch):
     process = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
+
+    def successful_taskkill(argv, **kwargs):
+        # Some managed Windows environments deny taskkill even for a child we
+        # created ourselves. Exercise the successful branch deterministically
+        # while still proving the direct child is no longer running.
+        process.kill()
+        process.wait(timeout=5)
+        return subprocess.CompletedProcess(argv, 0)
+
+    monkeypatch.setattr(runner.subprocess, "run", successful_taskkill)
     try:
         assert runner._kill_process_tree(process) is True
     finally:
-        process.wait(timeout=5)
+        if process.poll() is None:
+            process.kill()
+            process.wait(timeout=5)
 
     process = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
     monkeypatch.setattr(runner.subprocess, "run", lambda argv, **kw: subprocess.CompletedProcess(argv, 1))
