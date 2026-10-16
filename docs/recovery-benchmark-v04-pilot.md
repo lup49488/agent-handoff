@@ -1,13 +1,14 @@
 # Recovery Benchmark v0.4 Pilot Proposal
 
-Status: five source sessions have run, under two interruption rules, and
-none was interrupted: `D-r01` (v0.4 fixture) and `D-r02` (v0.5) under a
-five-minute wall-clock cutoff, and `D-baseline-r03` under a first-progress
-trigger. Every one finished first, so no recovery session has run and there is
-no recovery-effect comparison. `D-handoff-r03` was withdrawn before it ran (see
-[the observation](#what-the-first-progress-trigger-showed)). Plans registered
-from now on stop the source session at a fixed 30 seconds and render the
-Handoff arm's package at the stop; no pair has run under that rule yet.
+Status: `D-r04` is the first pair in which both source sessions were
+interrupted and both recoveries ran (see [D-r04](#d-r04-the-first-interrupted-pair)).
+Before it, five source sessions under two earlier rules all finished first:
+`D-r01` (v0.4 fixture) and `D-r02` (v0.5) under a five-minute wall-clock
+cutoff, and `D-baseline-r03` under a first-progress trigger. `D-handoff-r03`
+was withdrawn before it ran (see
+[the observation](#what-the-first-progress-trigger-showed)). Plans now stop the
+source session at a fixed 30 seconds and render the Handoff arm's package at
+the stop.
 
 ## Why a new pilot
 
@@ -178,6 +179,33 @@ skill had written anything, leaving the two arms nearly identical.
 could not yield a comparison whatever the Handoff arm did, and the rule it was
 registered under had been retired. The withdrawal and its reason are in the
 plan (`--withdraw`); the row is not deleted and was not chosen by outcome.
+
+### D-r04: the first interrupted pair
+
+Registered under the fixed-time rule (seed 20261015, Baseline first). Both
+source sessions were stopped by the trigger — at 30.39 and 30.53 seconds —
+with nothing yet on disk, as the observation above predicted. The Handoff
+session had initialised tracking but not rendered `HANDOFF.md`; the harness's
+pack produced a package that verified. Both recoveries passed full acceptance
+within budget, in scope, with no contamination and with every process tree
+ended.
+
+| | Baseline | Handoff |
+|---|---:|---:|
+| Recovery reaches full acceptance | 72.4 s | 112.5 s |
+| Recovery session exits | 89.3 s | 147.4 s |
+
+The Handoff recovery was about 40 seconds slower. This is one pair, run in
+one order: it is exploratory and supports no claim in either direction.
+
+What it cannot show is why. Only a hash of the package was kept, and the
+workspace is deleted after each trial, so whether the recovery received a
+checkpoint or only the task is unknown. The package's hash also changed during
+recovery, so the recovery session updated its handoff state while it worked —
+consistent with v0.3, where the Handoff arm spent longer after finishing, but
+not evidence of a cause. Records from now on keep the package's text as the
+recovery received it (`interruption.package_content`) and as recovery left it
+(`recovery.package_content_after`). The next pair should run Handoff first.
 - Randomize which arm runs first. Run one process at a time. Pre-register the
   pair and write each trial record before the first model call.
 - Use only synthetic/public task data. Keep authentication material and raw

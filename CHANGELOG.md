@@ -13,6 +13,14 @@ is still below 1.0, so the interface may still change.
 
 ### Fixed
 
+- A recovery-pilot record could not say what the recovery session was handed.
+  Only a hash of the package was kept and the workspace is deleted after each
+  trial, so when D-handoff-r04 — in the first pair whose sessions were both
+  interrupted — recovered about 40 seconds slower than its Baseline, there was
+  no way to tell whether its package held a checkpoint or only the task.
+  Records now keep the text of `HANDOFF.md` and the checkpoint behind it, as
+  recovery received them and as recovery left them.
+
 - The recovery pilot's first-progress trigger could not interrupt anything.
   Under it, D-baseline-r03 finished at 35.8 seconds without being stopped:
   progress and full acceptance first passed in the same probe round, about

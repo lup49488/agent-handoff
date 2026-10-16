@@ -218,6 +218,35 @@ def contamination_findings(arm: str, project: Path, stdout: str, stderr: str) ->
     return _shared_contamination(arm, project, stdout, stderr, permitted_skills=permitted)
 
 
+#: Bound on each kept file. The package after recovery embeds the solution's
+#: diff, which is a few kilobytes here; this only stops a runaway file from
+#: swallowing the record.
+PACKAGE_CONTENT_CHARS = 20000
+
+
+def package_content(project: Path) -> Dict[str, object]:
+    """The text of the handoff package, kept in the record.
+
+    Only hashes were kept before, and the workspace is deleted after each
+    trial, so D-handoff-r04's slower recovery could not be explained: there
+    was no way to tell whether the package it received held a checkpoint or
+    only the task. The rendered `HANDOFF.md` and the checkpoint behind it
+    (`state.md`) are task data from a synthetic public fixture; the record
+    keeps them so the mechanism behind a result can be read, not guessed.
+    """
+    store = Store(project)
+    kept: Dict[str, object] = {}
+    for key, path in (("handoff_md", store.handoff_file), ("state_md", store.state_file)):
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace") if path.is_file() else None
+        except OSError:
+            text = None
+        if text is not None and len(text) > PACKAGE_CONTENT_CHARS:
+            text = text[:PACKAGE_CONTENT_CHARS] + "\n[truncated: %d characters]\n" % len(text)
+        kept[key] = text
+    return kept
+
+
 def checkpoint_evidence(project: Path) -> Dict[str, object]:
     """Inspect, but never create or repair, source-phase handoff state."""
     store = Store(project)
@@ -465,12 +494,16 @@ def execute_arm(
     package_check: Callable[[Path], Dict[str, object]] = checkpoint_evidence,
     baseline_head: Optional[str] = None,
     pack: Optional[Callable[[Path], Dict[str, object]]] = None,
+    package_reader: Callable[[Path], Dict[str, object]] = package_content,
 ) -> Dict[str, object]:
     """Two fresh CLI processes in one evolving worktree; no transcript is passed.
 
     `pack`, given only for the Handoff arm, runs at the interruption what the
     product runs at a handoff. What the agent itself left is recorded as
-    `checkpoint_at_stop`; what the recovery session receives, as `checkpoint`.
+    `checkpoint_at_stop`; what the recovery session receives, as `checkpoint`,
+    with its text in `package_content`. The package's text at the end of
+    recovery is kept too: in D-handoff-r04 it changed during recovery, and
+    only its hash showed that.
     """
     source = invoke("source", project, prompt, source_budget)
     progress = progress_check(project)
@@ -500,6 +533,7 @@ def execute_arm(
             "checkpoint_at_stop": checkpoint_at_stop,
             "pack": packed,
             "checkpoint": checkpoint,
+            "package_content": package_reader(project),
         },
         "recovery": None,
     }
@@ -537,6 +571,7 @@ def execute_arm(
         key: value for key, value in recovery.items() if key not in ("stdout", "stderr")
     }
     result["recovery"].update({
+        "package_content_after": package_reader(project),
         "acceptance_passed": final_complete,
         "scope_violations": violations,
         "final_diff": diff,

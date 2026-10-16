@@ -405,3 +405,59 @@ def test_a_pack_that_errors_is_recorded_not_raised(tmp_path, monkeypatch):
     assert result["ran"] is True
     assert result["exit_code"] is None
     assert "TimeoutExpired" in result["error"]
+
+
+# -- what the recovery session was handed ----------------------------------------
+
+
+def fake_session(phase, project, prompt, budget):
+    return {"elapsed_seconds": 30.5, "timed_out": False,
+            "interrupted_by_trigger": phase == "source",
+            "trigger": "fixed_time" if phase == "source" else None,
+            "first_verified_progress_seconds": None, "first_verified_completion_seconds": None}
+
+
+def test_the_record_keeps_the_text_of_the_package_recovery_received(tmp_path):
+    """r04's slower recovery could not be explained: only a hash was kept."""
+    project = tmp_path / "project"
+    head = pilot._initialize_project(project)
+    run_cli(project, "init", "Extend the export command")
+    run_cli(project, "checkpoint", "--objective", "CSV projection",
+            "--decision", "keep the schema in schema.py", "--next", "null rendering")
+
+    result = pilot.execute_arm(
+        project, "task", fake_session,
+        progress_check=lambda p: False, completion_check=lambda p: False,
+        baseline_head=head, pack=pilot.pack_at_interruption,
+    )
+    received = result["interruption"]["package_content"]
+
+    assert "null rendering" in received["handoff_md"]
+    assert "keep the schema in schema.py" in received["state_md"]
+    assert result["recovery"]["package_content_after"]["handoff_md"] is not None
+
+
+def test_a_baseline_records_that_it_received_no_package(tmp_path):
+    project = tmp_path / "project"
+    head = pilot._initialize_project(project)
+
+    result = pilot.execute_arm(
+        project, "task", fake_session,
+        progress_check=lambda p: False, completion_check=lambda p: False,
+        baseline_head=head,
+    )
+
+    assert result["interruption"]["package_content"] == {"handoff_md": None, "state_md": None}
+
+
+def test_a_runaway_package_is_truncated_not_dropped(tmp_path, monkeypatch):
+    project = tmp_path / "project"
+    pilot._initialize_project(project)
+    run_cli(project, "init", "Extend the export command")
+    (project / "HANDOFF.md").write_text("x" * 50, encoding="utf-8")
+    monkeypatch.setattr(pilot, "PACKAGE_CONTENT_CHARS", 10)
+
+    kept = pilot.package_content(project)["handoff_md"]
+
+    assert kept.startswith("x" * 10)
+    assert "truncated: 50 characters" in kept
