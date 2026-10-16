@@ -352,6 +352,15 @@ is still below 1.0, so the interface may still change.
 
 ### Documented
 
+- Recovery-pilot pair D-r05, run Handoff first to balance D-r04. Its Handoff
+  recovery reached acceptance in 39.6 seconds against the Baseline's 66.7 —
+  the reverse of D-r04 — and in each pair the arm that ran first was faster,
+  so the two pairs support no direction. D-r05 was the first record to keep
+  the package's text: the checkpoint the skill had written by the 30-second
+  stop only restated the task, so the recovery received little its prompt did
+  not already hold. The consequence is for the skill: in its first 30 seconds
+  it records almost nothing a successor could use.
+
 - Time to verified progress and completion time are the same measurement as
   implemented: each fixture has one acceptance script, so for every completed
   trial the two fields hold the same number. The design lists them as two

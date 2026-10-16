@@ -1,8 +1,10 @@
 # Recovery Benchmark v0.4 Pilot Proposal
 
-Status: `D-r04` is the first pair in which both source sessions were
-interrupted and both recoveries ran (see [D-r04](#d-r04-the-first-interrupted-pair)).
-Before it, five source sessions under two earlier rules all finished first:
+Status: two pairs have run under the fixed 30-second rule, `D-r04` and
+`D-r05`, in opposite arm orders; in both, every source session was interrupted
+and every recovery ran (see [D-r04](#d-r04-the-first-interrupted-pair) and
+[D-r05](#d-r05-the-package-recovery-received)). They point in opposite
+directions and are exploratory. Before them, five source sessions under two earlier rules all finished first:
 `D-r01` (v0.4 fixture) and `D-r02` (v0.5) under a five-minute wall-clock
 cutoff, and `D-baseline-r03` under a first-progress trigger. `D-handoff-r03`
 was withdrawn before it ran (see
@@ -206,6 +208,65 @@ consistent with v0.3, where the Handoff arm spent longer after finishing, but
 not evidence of a cause. Records from now on keep the package's text as the
 recovery received it (`interruption.package_content`) and as recovery left it
 (`recovery.package_content_after`). The next pair should run Handoff first.
+
+### D-r05: the package recovery received
+
+Registered under the same rule with Handoff first, to balance D-r04's order
+(seed 20261016, chosen because it orders Handoff first; the seed is otherwise
+arbitrary). Both source sessions were stopped by the trigger — at 30.38 and
+30.47 seconds — with nothing yet on disk. Both recoveries passed full
+acceptance within budget, in scope, with no contamination and with every
+process tree ended. This was the first pair whose record kept the text of the
+package.
+
+| | Baseline | Handoff |
+|---|---:|---:|
+| Recovery reaches full acceptance | 66.7 s | 39.6 s |
+| Recovery session exits | 98.4 s | 63.7 s |
+
+The checkpoint the Handoff recovery received, written by the skill in the
+first 30 seconds, was in full:
+
+```text
+# Current Objective
+Extend export CSV projection, delimiter, and null rendering while preserving compatibility
+# Completed
+- Initial repository inspection started; no pre-existing worktree changes reported.
+# Next Suggested Step
+Inspect source and public tests, implement validated CSV options, then run unittests.
+```
+
+It restates the task and records that inspection had begun. It holds no
+finding about the code, no decision and no plan the prompt does not already
+give.
+
+### What the two pairs show, and what they do not
+
+| Pair | Ran first | Baseline | Handoff | Handoff − Baseline |
+|---|---|---:|---:|---:|
+| D-r04 | Baseline | 72.4 s | 112.5 s | +40.1 s |
+| D-r05 | Handoff | 66.7 s | 39.6 s | −27.1 s |
+
+- **The pairs disagree, and in each the arm that ran first was faster.** That
+  may be an order effect — provider latency drifting between back-to-back
+  sessions, for instance — or chance. Two pairs cannot tell which; it is why
+  the order has to stay balanced, and why no direction can be read from them.
+- **The package carried almost nothing.** At 30 seconds the skill had written
+  only a restatement of the task, so the Handoff recovery received little the
+  Baseline recovery did not already have in its prompt. Whatever made D-r05's
+  Handoff recovery faster, it is hard to credit to the package.
+- **Recovery time varies widely** within an arm, from 40 to 112 seconds
+  across these four sessions. Separating a real difference from that spread
+  needs many more pairs than two.
+
+The finding with the most consequence is about the product rather than the
+experiment: in its first 30 seconds of work, the skill records almost nothing
+a successor could use. A checkpoint becomes worth handing over only once it
+holds what the agent has learned — what the code does, what it decided, what
+it would do next — and on this task that point comes after the moment a
+stop is most likely to hurt. Whether the skill should checkpoint earlier and
+with more substance, for instance once the code is read and a plan is
+chosen, is a question for the skill, and the next thing worth testing.
 - Randomize which arm runs first. Run one process at a time. Pre-register the
   pair and write each trial record before the first model call.
 - Use only synthetic/public task data. Keep authentication material and raw
