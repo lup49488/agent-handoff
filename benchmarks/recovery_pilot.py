@@ -23,7 +23,14 @@ import time
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
-from agent_handoff import __version__ as _handoff_version
+# Run as `python benchmarks/recovery_pilot.py` as well as with `-m`: only the
+# module form put the project root on the path, and the script form failed on
+# its first import, as the other benchmark scripts once did.
+for _path in (Path(__file__).resolve().parents[1] / "src", Path(__file__).resolve().parents[1]):
+    if str(_path) not in sys.path:
+        sys.path.insert(0, str(_path))
+
+from agent_handoff import __version__ as _handoff_version  # noqa: E402
 from agent_handoff.adapters import registry
 from agent_handoff.integrity import errors as integrity_errors
 from agent_handoff.integrity import verify_package
@@ -39,18 +46,36 @@ ARMS = ("baseline", "handoff")
 SOURCE_SECONDS = 300
 RECOVERY_SECONDS = 600
 
-#: The interruption rule, frozen into every schema-2 plan.
+#: The interruption rule, frozen into every schema-3 plan: stop the source
+#: session 30 seconds after launch, unless full acceptance passes first.
 #:
-#: Stop the source session the moment the progress check first passes, unless
-#: full acceptance passes in the same round. In D-r01 and D-r02 all four source
-#: sessions finished long before the 300-second cutoff, so no recovery was ever
-#: measured — and in all four, progress and completion were first seen in the
-#: same five-second round. Agents write the solution in a burst, so a grace
-#: period would mostly let them finish and a coarse probe would miss the
-#: window: hence no grace and a one-second probe. The 300 seconds remain the
-#: hard stop. The Handoff arm's package is then rendered as the product
-#: renders it at a handoff (`pack_at_interruption`).
+#: Why time, not progress. Five source sessions across two earlier rules
+#: (D-r01, D-r02 under a 300-second cutoff; D-baseline-r03 under a
+#: first-progress trigger probing every ~1.2 seconds) all finished before any
+#: interruption — and in every one, the progress and completion checks first
+#: passed in the same probe round. The agent writes the whole solution in one
+#: burst: before that moment the repository is untouched, after it the task is
+#: done. There is no partly-written state on disk to interrupt, so the work in
+#: progress exists only in the agent's context — which is exactly what a
+#: checkpoint carries across a stop. A fixed time measures that directly.
+#:
+#: Why 30. Calibrated on those five sessions, frozen before the next launch:
+#: they completed at 20.4, 35.8, 46.1, 56.4 and 87.3 seconds, so 30 interrupts
+#: four of five while leaving the agent time to explore and the skill time to
+#: record. Fifteen would interrupt all five, but before the skill had likely
+#: written anything, leaving the arms nearly identical. A session that
+#: finishes first is still recorded as `completed_before_interruption`.
+#: The Handoff arm's package is rendered at the stop (`pack_at_interruption`).
 INTERRUPTION_POLICY = {
+    "trigger": "fixed_time",
+    "stop_after_seconds": 30,
+    "probe_seconds": 1.0,
+    "pack_handoff_arm": True,
+}
+
+#: Schema-2 plans (D-r03) were frozen under the first-progress rule, which the
+#: observation above retired. Kept so those plans still load as what they are.
+FIRST_PROGRESS_POLICY = {
     "trigger": "first_progress",
     "grace_seconds": 0,
     "probe_seconds": 1.0,
@@ -66,9 +91,14 @@ LEGACY_INTERRUPTION_POLICY = {
     "pack_handoff_arm": False,
 }
 
+#: The policy each plan schema must carry exactly.
+POLICY_FOR_SCHEMA = {2: FIRST_PROGRESS_POLICY, 3: INTERRUPTION_POLICY}
+
 
 def interruption_policy(plan: Dict[str, object]) -> Dict[str, object]:
     return dict(plan.get("interruption") or LEGACY_INTERRUPTION_POLICY)
+
+
 def _allowed_changes() -> set:
     """Every file a correct solution may change, derived from the fixture.
 
@@ -243,6 +273,7 @@ def run_bounded_process(
     *, env: Optional[Dict[str, str]] = None, progress_probe: Optional[Callable[[], bool]] = None,
     completion_probe: Optional[Callable[[], bool]] = None, probe_interval: float = 5.0,
     stop_after_progress: Optional[float] = None,
+    stop_after_seconds: Optional[float] = None,
     on_start: Optional[Callable[[int], None]] = None,
     on_finish: Optional[Callable[[], None]] = None,
     popen: Callable = subprocess.Popen,
@@ -250,11 +281,11 @@ def run_bounded_process(
 ) -> Dict[str, object]:
     """Run one session, hard-stop its process tree at the budget, and collect output.
 
-    With `stop_after_progress`, the session is also stopped that many seconds
-    after the progress check first passes, unless full acceptance passes
-    first. That is the interruption trigger: the same rule for both arms,
-    fixed before launch, and it lands where meaningful work exists but is not
-    finished — which a wall-clock cutoff the agent always beat never did.
+    An interruption trigger, the same for both arms and fixed before launch,
+    can stop the session earlier, unless full acceptance passes first:
+    `stop_after_seconds` after launch (the current rule), or
+    `stop_after_progress` seconds after the progress check first passes (the
+    rule D-r03 was registered under).
     """
     started_at = dt.datetime.now(dt.timezone.utc).isoformat()
     started = time.monotonic()
@@ -285,13 +316,13 @@ def run_bounded_process(
     tree_ended = [True]
 
     def monitor_progress():
-        stop_at = None
+        stop_at = stop_after_seconds
         while not stop_probe.wait(probe_interval):
             elapsed = round(time.monotonic() - started, 3)
             try:
                 if progress_probe is not None and first_progress[0] is None and progress_probe():
                     first_progress[0] = elapsed
-                    if stop_after_progress is not None:
+                    if stop_after_progress is not None and stop_at is None:
                         stop_at = elapsed + stop_after_progress
             except Exception:
                 # A probe failure is not evidence of task progress. The
@@ -357,6 +388,10 @@ def run_bounded_process(
         "first_verified_progress_seconds": first_progress[0],
         "first_verified_completion_seconds": first_completion[0],
         "interrupted_by_trigger": triggered[0] is not None,
+        "trigger": (
+            None if triggered[0] is None
+            else "fixed_time" if stop_after_seconds is not None else "first_progress"
+        ),
         "trigger_seconds": triggered[0],
         "process_tree_terminated": tree_ended[0],
     }
@@ -454,6 +489,7 @@ def execute_arm(
             "outcome": boundary,
             "termination_reason": (
                 "task_completed_before_stop" if complete else
+                "time_trigger" if source.get("trigger") == "fixed_time" else
                 "progress_trigger" if source.get("interrupted_by_trigger") else
                 "source_budget_hard_stop" if source.get("timed_out") else
                 "source_process_exited_early"
@@ -570,7 +606,7 @@ def build_plan(
     arms = list(ARMS)
     random.Random("task-d-v05|%d" % seed).shuffle(arms)
     data = {
-        "schema_version": 2,
+        "schema_version": 3,
         "interruption": dict(INTERRUPTION_POLICY),
         "pair_id": "D-" + replicate,
         "replicate": replicate,
@@ -653,12 +689,13 @@ def _read_plan(path: Path) -> Dict[str, object]:
     replicate = data.get("replicate")
     if replicate is None and data.get("pair_id") == "D-r01":
         replicate = "r01"  # v0.4 plans predate the explicit replicate field.
-    if data.get("schema_version") == 2 and data.get("interruption") != INTERRUPTION_POLICY:
+    expected_policy = POLICY_FOR_SCHEMA.get(data.get("schema_version"))
+    if expected_policy is not None and data.get("interruption") != expected_policy:
         raise ValueError("pilot plan interruption policy differs from the frozen protocol")
     if data.get("schema_version") == 1 and "interruption" in data:
         raise ValueError("a schema-1 pilot plan cannot carry an interruption policy")
     if (
-        data.get("schema_version") not in (1, 2)
+        data.get("schema_version") not in (1, 2, 3)
         or not isinstance(replicate, str)
         or re.fullmatch(r"r[0-9]{2,}", replicate) is None
         or data.get("pair_id") != "D-" + replicate
@@ -674,7 +711,7 @@ def _read_plan(path: Path) -> Dict[str, object]:
         for index, row in enumerate(rows, 1)
     ):
         raise ValueError("pilot row identifiers do not match the registered replicate")
-    if any(row.get("state") not in ("pending", "running", "recorded", "invalid") for row in rows):
+    if any(row.get("state") not in ("pending", "running", "recorded", "invalid", "withdrawn") for row in rows):
         raise ValueError("pilot plan contains an unknown row state")
     if not data.get("model") or not data.get("cli_version") or data.get("target") != "codex":
         raise ValueError("pilot plan lacks pinned Codex configuration")
@@ -725,7 +762,8 @@ def validate_record(record: Dict[str, object]) -> List[str]:
         problems.append("an invalid trial cannot be primary success")
     if record.get("arm") == "baseline" and interruption.get("pack") is not None:
         problems.append("the baseline arm must not receive a harness-rendered package")
-    if interruption.get("termination_reason") == "progress_trigger" and interruption.get("completion_passed"):
+    if (interruption.get("termination_reason") in ("progress_trigger", "time_trigger")
+            and interruption.get("completion_passed")):
         problems.append("a session stopped by the progress trigger cannot have completed first")
     if record.get("contamination") and any(record["contamination"].values()):
         if recovery is not None and recovery.get("primary_success"):
@@ -773,6 +811,28 @@ def finish_row(path: Path, trial_id: str, state: str) -> None:
             raise RuntimeError("no running row " + trial_id)
         row["state"] = state
         row.pop("claimed_by", None)
+        _save_plan(path, data)
+
+
+def withdraw_row(path: Path, trial_id: str, reason: str) -> None:
+    """Retire a pending row that will not be run, saying why.
+
+    For a pair whose design is retired part-way: D-r03's Baseline ran under
+    the first-progress rule and finished before any interruption, as every
+    source session had, so its Handoff row could not complete a comparison
+    whatever it did. A withdrawn row is never claimed and keeps its reason;
+    it is not an exclusion chosen by outcome, and it is not deleted.
+    """
+    if not reason.strip():
+        raise ValueError("a withdrawal needs a reason")
+    with Lock(Path(path).with_name(Path(path).name + ".lock"), command="recovery pilot withdraw"):
+        data = _read_plan(path)
+        row = next((item for item in data["rows"] if item.get("trial_id") == trial_id), None)
+        if row is None or row.get("state") != "pending":
+            raise RuntimeError("no pending row " + trial_id)
+        row["state"] = "withdrawn"
+        row["withdrawn_because"] = reason.strip()
+        row["withdrawn_at"] = dt.datetime.now(dt.timezone.utc).isoformat()
         _save_plan(path, data)
 
 
@@ -862,7 +922,7 @@ def _run_live_row(plan_path: Path, row: Dict[str, object], data: Dict[str, objec
         logs = {}
         contamination = {}
         policy = interruption_policy(data)
-        triggered = policy["trigger"] == "first_progress"
+        trigger = policy["trigger"]
 
         def invoke(phase: str, project: Path, request: str, budget: int) -> Dict[str, object]:
             visible = _preflight(
@@ -879,7 +939,12 @@ def _run_live_row(plan_path: Path, row: Dict[str, object], data: Dict[str, objec
                 # Only the source session is interrupted; recovery runs to
                 # acceptance or its own budget.
                 stop_after_progress=(
-                    float(policy["grace_seconds"]) if triggered and phase == "source" else None
+                    float(policy["grace_seconds"])
+                    if trigger == "first_progress" and phase == "source" else None
+                ),
+                stop_after_seconds=(
+                    float(policy["stop_after_seconds"])
+                    if trigger == "fixed_time" and phase == "source" else None
                 ),
                 on_start=lambda pid: set_active_child(plan_path, str(row["trial_id"]), pid),
                 on_finish=lambda: set_active_child(plan_path, str(row["trial_id"]), None),
@@ -1062,6 +1127,8 @@ def main(argv: List[str] | None = None) -> int:
     parser.add_argument("--launch", action="store_true", help="launch exactly the next pending arm; consumes model quota")
     parser.add_argument("--status", action="store_true", help="show plan rows without launching")
     parser.add_argument("--resolve-abandoned", metavar="TRIAL_ID", help="mark a dead local running row invalid; never rerun it")
+    parser.add_argument("--withdraw", metavar="TRIAL_ID", help="retire a pending row that will not be run")
+    parser.add_argument("--reason", default="", help="with --withdraw: why the row will not be run")
     args = parser.parse_args(argv)
     if args.calibrate:
         if args.launch or args.plan or args.register_plan:
@@ -1089,6 +1156,10 @@ def main(argv: List[str] | None = None) -> int:
                 parser.error("--launch cannot be combined with --status or --resolve-abandoned")
             if args.status and args.resolve_abandoned:
                 parser.error("--status cannot be combined with --resolve-abandoned")
+            if args.withdraw:
+                withdraw_row(args.plan, args.withdraw, args.reason)
+                print("withdrew " + args.withdraw)
+                return 0
             if args.resolve_abandoned:
                 invalidate_abandoned(args.plan, args.resolve_abandoned)
                 print("marked abandoned row invalid; it will not be rerun")

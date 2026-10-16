@@ -13,6 +13,22 @@ is still below 1.0, so the interface may still change.
 
 ### Fixed
 
+- The recovery pilot's first-progress trigger could not interrupt anything.
+  Under it, D-baseline-r03 finished at 35.8 seconds without being stopped:
+  progress and full acceptance first passed in the same probe round, about
+  1.2 seconds apart at most. Five source sessions of five, under both rules
+  tried, have shown the same: the agent writes the whole solution in one
+  burst, so there is no partly-written state on disk to interrupt, and the
+  work in progress lives only in the agent's context — what a checkpoint is
+  for. New plans (schema 3) stop the source session at a fixed 30 seconds,
+  calibrated on those five sessions; earlier plans still load as the rule
+  they were registered under. `--withdraw` retires a pending pilot row with
+  its reason; D-handoff-r03 was withdrawn, since without a Baseline recovery
+  its pair could not yield a comparison.
+
+- `python benchmarks/recovery_pilot.py` failed on its first import; only
+  `python -m benchmarks.recovery_pilot` worked.
+
 - Ctrl-C stopped `handoff run` but not its agent. Adapters start the agent
   in its own session (POSIX) or process group (Windows) so its whole tree can
   be killed, which also keeps a terminal's Ctrl-C from reaching it — Windows

@@ -1,12 +1,13 @@
 # Recovery Benchmark v0.4 Pilot Proposal
 
-Status: two live matched pairs have run — `D-r01` on the v0.4 fixture and
-`D-r02` on the harder v0.5 fixture. In all four source sessions the task was
-finished before the five-minute wall-clock cutoff, so no recovery session has
-yet run and there is no recovery-effect comparison. Plans registered from now
-on use a progress-triggered interruption and render the Handoff arm's package
-at the stop; see [Interruption](#interruption-and-budgets). No pair has run
-under that protocol yet.
+Status: five source sessions have run, under two interruption rules, and
+none was interrupted: `D-r01` (v0.4 fixture) and `D-r02` (v0.5) under a
+five-minute wall-clock cutoff, and `D-baseline-r03` under a first-progress
+trigger. Every one finished first, so no recovery session has run and there is
+no recovery-effect comparison. `D-handoff-r03` was withdrawn before it ran (see
+[the observation](#what-the-first-progress-trigger-showed)). Plans registered
+from now on stop the source session at a fixed 30 seconds and render the
+Handoff arm's package at the stop; no pair has run under that rule yet.
 
 ## Why a new pilot
 
@@ -87,8 +88,8 @@ minutes; only a future authorized pilot can establish that empirically.
 
 The runner now accepts a replicate identifier, derives the pair and trial IDs
 from it, preserves legacy `D-r01` plans, and refuses to register an identifier
-already present in another plan or trial artifact. `r01` and `r02` are used;
-register the next pair as `r03`.
+already present in another plan or trial artifact. `r01`–`r03` are used;
+register the next pair as `r04`.
 
 The scope audit's allowed files are derived from the fixture: every file its
 partial or reference variant changes, plus `HANDOFF.md`. A hand-written list
@@ -127,19 +128,13 @@ can isolate the recovery artifact itself, but it is not part of this pilot.
 - Give source work a five-minute hard stop and recovery work a ten-minute
   cap. Record both phase durations separately; the runner must terminate the
   source process tree at the declared boundary.
-- **Interrupt on progress, not on the clock.** The source session is stopped
-  the moment the fixture-owned progress check first passes, unless full
-  acceptance passes in the same probe round; the probe runs every second, with
-  no grace period. The same rule applies to both arms and is frozen into each
-  plan (`interruption` in a schema-2 plan; the plan will not load if it
-  differs). The wall-clock rule never produced an interruption: in `D-r01`
-  and `D-r02` all four sessions finished well inside five minutes, and in all
-  four, progress and completion were first observed in the same five-second
-  round — the agent writes the solution in a burst. A grace period would
-  mostly let it finish, and a coarse probe would miss the window. Whether a
-  one-second probe catches the window often enough is itself the next
-  question the pilot answers; a session that completes first is still
-  recorded as `completed_before_interruption`, never excluded.
+- **Interrupt at a fixed time.** The source session is stopped 30 seconds
+  after launch, unless full acceptance passes first. The same rule applies to
+  both arms and is frozen into each plan (`interruption` in a schema-3 plan;
+  the plan will not load if it differs). A session that completes first is
+  still recorded as `completed_before_interruption`, never excluded. The two
+  rules before it are described below; their plans still load as the rule
+  they were registered under.
 - **The Handoff arm is handed over as the product hands over.** At the stop,
   the harness runs `handoff pack` in the Handoff arm, which is what a failing
   `handoff run` or a `handoff switch` does at a handoff; an agent stopped
@@ -150,8 +145,39 @@ can isolate the recovery artifact itself, but it is not part of this pilot.
   recovery receives), with the pack's own result. The Baseline arm receives
   nothing, and a record that shows a pack for it fails validation.
 - Never create, edit or repair checkpoint content in the harness.
-- `D-r01` and `D-r02` ran under the previous rule — wall-clock cutoff, no
-  pack — and their schema-1 plans still read back as that rule.
+- `D-r01` and `D-r02` ran under the first rule — wall-clock cutoff, no
+  pack — and their schema-1 plans still read back as that rule. `D-r03` was
+  registered under the second, first-progress rule (schema 2).
+
+### What the first-progress trigger showed
+
+The second rule stopped the source session the moment the fixture's progress
+check first passed, probing about every 1.2 seconds (each check takes about
+0.1 seconds). `D-baseline-r03` finished at 35.8 seconds without being stopped:
+progress and full acceptance first passed in the same probe round. That made
+five sessions of five, under both rules, in which the two checks first passed
+together — 20.4, 35.8, 46.1, 56.4 and 87.3 seconds.
+
+The agent writes the whole solution in one burst. Before that moment the
+repository is untouched; after it, the task is done. There is no
+partly-written state on disk to interrupt, at any probe interval. The work in
+progress exists only in the agent's context — what it has read and decided —
+which is exactly what a checkpoint is meant to carry across a stop, and what
+a progress trigger can never see.
+
+So the rule became a fixed time, and the question the pilot answers became
+the one that matters most for this tool: interrupted before the code is
+written, does a fresh session that receives the handoff package recover
+faster or more reliably than one that starts over? Thirty seconds was
+calibrated on the five sessions above and frozen before the next launch: it
+interrupts four of five while leaving the agent time to explore and the skill
+time to record. Fifteen would interrupt all five, but most likely before the
+skill had written anything, leaving the two arms nearly identical.
+
+`D-handoff-r03` was withdrawn, not run: with no Baseline recovery, the pair
+could not yield a comparison whatever the Handoff arm did, and the rule it was
+registered under had been retired. The withdrawal and its reason are in the
+plan (`--withdraw`); the row is not deleted and was not chosen by outcome.
 - Randomize which arm runs first. Run one process at a time. Pre-register the
   pair and write each trial record before the first model call.
 - Use only synthetic/public task data. Keep authentication material and raw
@@ -231,8 +257,8 @@ Example model-free registration (replace both placeholders with the exact
 configuration chosen for this run):
 
 ```powershell
-python -m benchmarks.recovery_pilot --register-plan .trials/task-d-v05-r03.json --replicate r03 --seed 20261011 --model "<pinned model slug>" --cli-version "<exact codex --version output>"
-python -m benchmarks.recovery_pilot --plan .trials/task-d-v05-r03.json --status
+python -m benchmarks.recovery_pilot --register-plan .trials/task-d-v05-r04.json --replicate r04 --seed 20261015 --model "<pinned model slug>" --cli-version "<exact codex --version output>"
+python -m benchmarks.recovery_pilot --plan .trials/task-d-v05-r04.json --status
 ```
 
 Starting the next arm requires a separate, explicit `--launch`; do not include

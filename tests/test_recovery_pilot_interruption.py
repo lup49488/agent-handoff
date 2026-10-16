@@ -194,19 +194,123 @@ def skill():
     return {"name": "agent-handoff", "path": "skill/SKILL.md", "sha256": "a" * 64}
 
 
-def test_new_plans_freeze_the_interruption_policy(tmp_path):
-    plan = pilot.build_plan(7, "m", "codex-cli test", skill(), replicate="r03")
+def test_new_plans_freeze_the_fixed_time_rule(tmp_path):
+    plan = pilot.build_plan(7, "m", "codex-cli test", skill(), replicate="r04")
     path = tmp_path / "plan.json"
     path.write_text(json.dumps(plan), encoding="utf-8")
 
-    assert plan["schema_version"] == 2
-    assert pilot.interruption_policy(pilot._read_plan(path)) == pilot.INTERRUPTION_POLICY
+    assert plan["schema_version"] == 3
+    policy = pilot.interruption_policy(pilot._read_plan(path))
+    assert policy == pilot.INTERRUPTION_POLICY
+    assert policy["trigger"] == "fixed_time" and policy["stop_after_seconds"] == 30
 
-    plan["interruption"] = dict(plan["interruption"], grace_seconds=30)
+    plan["interruption"] = dict(plan["interruption"], stop_after_seconds=60)
     plan["manifest_sha256"] = pilot._plan_manifest_hash(plan)
     path.write_text(json.dumps(plan), encoding="utf-8")
     with pytest.raises(ValueError, match="interruption policy differs"):
         pilot._read_plan(path)
+
+
+def test_a_schema_2_plan_still_loads_as_the_first_progress_rule(tmp_path):
+    """D-r03 was registered under the rule the fixed-time rule replaced."""
+    plan = pilot.build_plan(7, "m", "codex-cli test", skill(), replicate="r03")
+    plan["schema_version"] = 2
+    plan["interruption"] = dict(pilot.FIRST_PROGRESS_POLICY)
+    plan["manifest_sha256"] = pilot._plan_manifest_hash(plan)
+    path = tmp_path / "r03.json"
+    path.write_text(json.dumps(plan), encoding="utf-8")
+
+    assert pilot.interruption_policy(pilot._read_plan(path))["trigger"] == "first_progress"
+
+
+def test_the_session_is_stopped_at_the_fixed_time(tmp_path):
+    started = time.monotonic()
+    result = pilot.run_bounded_process(
+        SLEEPER, tmp_path, 60,
+        progress_probe=lambda: False, completion_probe=lambda: False,
+        probe_interval=0.2, stop_after_seconds=1.0,
+    )
+
+    assert result["interrupted_by_trigger"] is True
+    assert result["trigger"] == "fixed_time"
+    assert 1.0 <= result["trigger_seconds"] < 5
+    assert result["timed_out"] is False
+    assert time.monotonic() - started < 30
+
+
+def test_a_session_that_completes_before_the_fixed_time_is_not_cut_off(tmp_path):
+    finishes = [sys.executable, "-c", "import time; time.sleep(1.5)"]
+    result = pilot.run_bounded_process(
+        finishes, tmp_path, 60,
+        progress_probe=lambda: True, completion_probe=lambda: True,
+        probe_interval=0.1, stop_after_seconds=1.0,
+    )
+
+    assert result["interrupted_by_trigger"] is False
+    assert result["exit_code"] == 0
+
+
+def test_a_time_trigger_is_recorded_as_such(tmp_path):
+    def invoke(phase, project, prompt, budget):
+        return {"elapsed_seconds": 30.4, "timed_out": False,
+                "interrupted_by_trigger": phase == "source",
+                "trigger": "fixed_time" if phase == "source" else None,
+                "first_verified_progress_seconds": None, "first_verified_completion_seconds": None}
+
+    states = iter([False, True])
+    result = pilot.execute_arm(
+        tmp_path, "task", invoke,
+        progress_check=lambda p: False, completion_check=lambda p: next(states, True),
+        package_check=lambda p: {"present": False, "valid": False, "sha256": None, "errors": []},
+    )
+
+    assert result["interruption"]["termination_reason"] == "time_trigger"
+    assert result["interruption"]["outcome"] == "no_progress_at_interruption"
+
+
+# -- withdrawing a row ---------------------------------------------------------
+
+
+def registered(tmp_path):
+    plan = pilot.build_plan(7, "m", "codex-cli test", skill(), replicate="r05")
+    path = tmp_path / "plan.json"
+    path.write_text(json.dumps(plan), encoding="utf-8")
+    return path, plan
+
+
+def test_a_withdrawn_row_is_never_claimed_and_keeps_its_reason(tmp_path):
+    path, plan = registered(tmp_path)
+    first, second = plan["rows"]
+
+    pilot.withdraw_row(path, first["trial_id"], "design retired before this row ran")
+
+    data = pilot._read_plan(path)
+    assert data["rows"][0]["state"] == "withdrawn"
+    assert data["rows"][0]["withdrawn_because"] == "design retired before this row ran"
+    assert pilot.claim_next(path)["trial_id"] == second["trial_id"]
+
+
+def test_only_a_pending_row_can_be_withdrawn_and_only_with_a_reason(tmp_path):
+    path, plan = registered(tmp_path)
+    first, second = plan["rows"]
+
+    with pytest.raises(ValueError, match="needs a reason"):
+        pilot.withdraw_row(path, first["trial_id"], "  ")
+    pilot.claim_next(path)
+    with pytest.raises(RuntimeError, match="no pending row"):
+        pilot.withdraw_row(path, first["trial_id"], "too late")
+
+
+def test_the_pilot_runs_as_a_script(tmp_path):
+    """Only `python -m` worked; the script form failed on its first import."""
+    path, _ = registered(tmp_path)
+    result = subprocess.run(
+        [sys.executable, str(pilot.ROOT / "benchmarks" / "recovery_pilot.py"), "--plan", str(path), "--status"],
+        capture_output=True, text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "D-r05" in result.stdout
 
 
 def test_a_schema_1_plan_reads_back_as_the_wall_clock_rule_it_ran_under(tmp_path):
