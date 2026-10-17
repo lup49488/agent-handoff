@@ -1,0 +1,39 @@
+{
+  "kind": "window_measurement",
+  "model": "gpt-5.6-terra",
+  "effort": "medium",
+  "cli_version": "codex-cli 0.160.0",
+  "skill_sha256": "5df7872427c6b7e412bc291cba949470fc9da671942d16011087b29ab3a3447e",
+  "fixture_sha256": "97fc0a59f60f91b79681de8cbb95750771434a36a88c82c9d03f3ef618cb0c0b",
+  "preflight_visible_user_skills": [
+    "agent-handoff"
+  ],
+  "session": {
+    "exit_code": 0,
+    "timed_out": false,
+    "elapsed_seconds": 114.297,
+    "started_at": "2026-10-17T02:53:01.531093+00:00",
+    "finished_at": "2026-10-17T02:54:55.829152+00:00",
+    "first_verified_progress_seconds": 93.906,
+    "first_verified_completion_seconds": 93.906,
+    "interrupted_by_trigger": false,
+    "trigger": null,
+    "trigger_seconds": null,
+    "process_tree_terminated": true
+  },
+  "tracking_started_seconds": 17.25,
+  "first_checkpoint_seconds": 38.125,
+  "checkpoint_versions": [
+    {
+      "seen_at_seconds": 38.125,
+      "text": "# Current Objective\n\nExtend export CLI with configurable CSV columns, delimiter, and null rendering while preserving default CSV/JSON behavior\n\n# Completed\n\n- Inspected CLI, CSV, JSON, schema, and public tests. Existing CSV writes fixed header and rows; JSON independently maps row indices.\n\n# Decisions\n\n- Centralize field indices and row projection helpers in schema; CSV validates its options before cli opens destination. JSON will intentionally ignore CSV-specific values.\n\n# Next Suggested Step\n\nPatch schema, CSV writer, JSON writer, and CLI; then run unittest.\n"
+    },
+    {
+      "seen_at_seconds": 114.297,
+      "text": "# Current Objective\n\nExtend export CLI with configurable CSV columns, delimiter, and null rendering while preserving default CSV/JSON behavior\n\n# Completed\n\n- Inspected CLI, CSV, JSON, schema, and public tests. Existing CSV writes fixed header and rows; JSON independently maps row indices.\n- Added CSV CLI options and export_rows keyword API; validated delimiters and projections before opening a CSV output; added None-only replacement and ordered projection with standard csv quoting.\n- Centralized positional field lookup in schema and changed JSON to consume the same schema helper.\n- Verified python -m unittest -v: 6 tests passed.\n\n# Decisions\n\n- Centralize field indices and row projection helpers in schema; CSV validates its options before cli opens destination. JSON will intentionally ignore CSV-specific values.\n- CSV writer accepts normalized tuples internally because export_rows validates before file creation; JSON ignores all CSV-only values.\n\n# Next Suggested Step\n\nReady for review.\n"
+    }
+  ],
+  "completion_seconds": 93.906,
+  "contamination": [],
+  "recorded_at": "2026-10-17T02:54:55.836914+00:00"
+}

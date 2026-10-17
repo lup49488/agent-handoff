@@ -1,11 +1,12 @@
 # Recovery Benchmark v0.4 Pilot Proposal
 
-Status: three pairs have run under the fixed 30-second rule — `D-r04`,
-`D-r05`, and `D-r06` with a revised skill — and in all three every source
-session was interrupted and every recovery ran. They point in different
-directions and are exploratory; together they show that a 30-second stop comes
-before the skill has anything worth handing over (see
-[D-r06](#d-r06-a-skill-that-checkpoints-before-editing)). Before them, five source sessions under two earlier rules all finished first:
+Status: three pairs ran under a fixed 30-second stop — `D-r04`, `D-r05`,
+and `D-r06` with a revised skill — and showed that 30 seconds comes before the
+skill has anything worth handing over. The window in which a package can help
+was then measured directly in four uninterrupted sessions, and plans now stop
+the source session at 45 seconds, inside it (see
+[the measured window](#the-window-a-package-can-help-in)). No pair has run
+under that rule yet. Before them, five source sessions under two earlier rules all finished first:
 `D-r01` (v0.4 fixture) and `D-r02` (v0.5) under a five-minute wall-clock
 cutoff, and `D-baseline-r03` under a first-progress trigger. `D-handoff-r03`
 was withdrawn before it ran (see
@@ -92,8 +93,8 @@ minutes; only a future authorized pilot can establish that empirically.
 
 The runner now accepts a replicate identifier, derives the pair and trial IDs
 from it, preserves legacy `D-r01` plans, and refuses to register an identifier
-already present in another plan or trial artifact. `r01`–`r03` are used;
-register the next pair as `r04`.
+already present in another plan or trial artifact. `r01`–`r06` are used;
+register the next pair as `r07`.
 
 The scope audit's allowed files are derived from the fixture: every file its
 partial or reference variant changes, plus `HANDOFF.md`. A hand-written list
@@ -315,6 +316,40 @@ test the package at all, and 30 seconds falls before it. Where the window is,
 and how wide, is the next thing to measure — from uninterrupted Handoff
 sessions, whose `checkpoints.jsonl` times the first checkpoint and whose
 probes time completion — before choosing another stop.
+
+### The window a package can help in
+
+Four Handoff source sessions with the revised skill were run to their end,
+uninterrupted (`--measure-window`; records in
+`benchmarks/results/window-2026-10-16/`). Each round of the probe also read
+`state.md` and kept every version of the checkpoint with when it first
+appeared, since the file is overwritten as the session goes on.
+
+| | Tracking starts | First checkpoint | Completion | Window |
+|---|---:|---:|---:|---:|
+| W01 | 12.6 s | 20.7 s | 39.3 s | 18.6 s |
+| W02 | 26.5 s | 26.5 s | 76.3 s | 49.8 s |
+| W03 | 17.3 s | 38.1 s | 93.9 s | 55.8 s |
+| W04 | 14.9 s | 31.1 s | 68.1 s | 37.0 s |
+
+Every first checkpoint was written before any edit and was substantive: the
+files read and what they currently do, the approach chosen and why, and the
+first change to make. W04's, for example, records that the CLI opens the
+destination before dispatching, that CSV writes a fixed header while JSON
+indexes each tuple itself, and the decision to centralise the schema and
+validate CSV options before opening the path. The revision does what it was
+meant to; D-r06 was simply stopped before it got there.
+
+**Choosing the stop.** At 30 seconds only two of the four were inside their
+window. 38.5 seconds caught all four, but by under a second at either end. At
+45 seconds three of four are inside — W01 had already finished — with at
+least 6.9 seconds since the first checkpoint and 23 seconds before completion,
+a margin ordinary variation should not erase. New plans (schema 4) stop at 45
+seconds; schema-3 plans (D-r04 to D-r06) still load as 30.
+
+At 45 seconds the Handoff arm should, most of the time, hand over a checkpoint
+like the ones above while neither arm has yet changed a file. That is the
+comparison the pilot exists to make, and the first one it has been able to.
 - Randomize which arm runs first. Run one process at a time. Pre-register the
   pair and write each trial record before the first model call.
 - Use only synthetic/public task data. Keep authentication material and raw
@@ -394,8 +429,8 @@ Example model-free registration (replace both placeholders with the exact
 configuration chosen for this run):
 
 ```powershell
-python -m benchmarks.recovery_pilot --register-plan .trials/task-d-v05-r04.json --replicate r04 --seed 20261015 --model "<pinned model slug>" --cli-version "<exact codex --version output>"
-python -m benchmarks.recovery_pilot --plan .trials/task-d-v05-r04.json --status
+python -m benchmarks.recovery_pilot --register-plan .trials/task-d-v05-r07.json --replicate r07 --seed <seed> --model "<pinned model slug>" --cli-version "<exact codex --version output>"
+python -m benchmarks.recovery_pilot --plan .trials/task-d-v05-r07.json --status
 ```
 
 Starting the next arm requires a separate, explicit `--launch`; do not include

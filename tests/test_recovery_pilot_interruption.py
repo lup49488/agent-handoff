@@ -195,20 +195,32 @@ def skill():
 
 
 def test_new_plans_freeze_the_fixed_time_rule(tmp_path):
-    plan = pilot.build_plan(7, "m", "codex-cli test", skill(), replicate="r04")
+    plan = pilot.build_plan(7, "m", "codex-cli test", skill(), replicate="r07")
     path = tmp_path / "plan.json"
     path.write_text(json.dumps(plan), encoding="utf-8")
 
-    assert plan["schema_version"] == 3
+    assert plan["schema_version"] == 4
     policy = pilot.interruption_policy(pilot._read_plan(path))
     assert policy == pilot.INTERRUPTION_POLICY
-    assert policy["trigger"] == "fixed_time" and policy["stop_after_seconds"] == 30
+    assert policy["trigger"] == "fixed_time" and policy["stop_after_seconds"] == 45
 
     plan["interruption"] = dict(plan["interruption"], stop_after_seconds=60)
     plan["manifest_sha256"] = pilot._plan_manifest_hash(plan)
     path.write_text(json.dumps(plan), encoding="utf-8")
     with pytest.raises(ValueError, match="interruption policy differs"):
         pilot._read_plan(path)
+
+
+def test_a_schema_3_plan_still_loads_as_the_thirty_second_rule(tmp_path):
+    """D-r04 to D-r06 were registered under 30 seconds."""
+    plan = pilot.build_plan(7, "m", "codex-cli test", skill(), replicate="r06")
+    plan["schema_version"] = 3
+    plan["interruption"] = dict(pilot.THIRTY_SECOND_POLICY)
+    plan["manifest_sha256"] = pilot._plan_manifest_hash(plan)
+    path = tmp_path / "r06.json"
+    path.write_text(json.dumps(plan), encoding="utf-8")
+
+    assert pilot.interruption_policy(pilot._read_plan(path))["stop_after_seconds"] == 30
 
 
 def test_a_schema_2_plan_still_loads_as_the_first_progress_rule(tmp_path):
@@ -461,3 +473,34 @@ def test_a_runaway_package_is_truncated_not_dropped(tmp_path, monkeypatch):
 
     assert kept.startswith("x" * 10)
     assert "truncated: 50 characters" in kept
+
+
+# -- measuring the window a package can help in ------------------------------------
+
+
+def test_the_watcher_keeps_each_version_of_the_checkpoint_with_its_time(tmp_path):
+    """state.md is overwritten; an early, thin checkpoint must not be lost to a later one."""
+    project = tmp_path / "project"
+    pilot._initialize_project(project)
+    watch = pilot._StateWatcher(project, time.monotonic())
+
+    watch()                                   # nothing yet
+    run_cli(project, "init", "Extend the export command")
+    watch()                                   # tracking, no checkpoint
+    run_cli(project, "checkpoint", "--objective", "CSV projection")
+    watch()
+    watch()                                   # unchanged: not a new version
+    run_cli(project, "checkpoint", "--done", "read cli.py and schema.py", "--next", "add --columns")
+    watch()
+
+    assert watch.tracking_started is not None
+    assert len(watch.versions) == 2
+    assert "CSV projection" in watch.versions[0]["text"]
+    assert "read cli.py and schema.py" in watch.versions[1]["text"]
+    assert watch.versions[0]["seen_at_seconds"] <= watch.versions[1]["seen_at_seconds"]
+
+
+def test_measuring_the_window_spends_quota_only_with_launch(tmp_path):
+    with pytest.raises(SystemExit):
+        pilot.main(["--measure-window", str(tmp_path / "w.json"), "--model", "m", "--cli-version", "v"])
+    assert not (tmp_path / "w.json").exists()

@@ -66,12 +66,26 @@ RECOVERY_SECONDS = 600
 #: written anything, leaving the arms nearly identical. A session that
 #: finishes first is still recorded as `completed_before_interruption`.
 #: The Handoff arm's package is rendered at the stop (`pack_at_interruption`).
-INTERRUPTION_POLICY = {
+THIRTY_SECOND_POLICY = {
     "trigger": "fixed_time",
     "stop_after_seconds": 30,
     "probe_seconds": 1.0,
     "pack_handoff_arm": True,
 }
+
+#: The interruption rule frozen into every schema-4 plan: 45 seconds.
+#:
+#: Thirty seconds came before the skill had anything to hand over: in D-r05 the
+#: package held a restatement of the task, in D-r06 nothing. A package can only
+#: help between the first substantive checkpoint and completion, so that
+#: window was measured directly, in four uninterrupted Handoff source sessions
+#: with the revised skill (`--measure-window`, W01-W04): first checkpoint at
+#: 20.7, 26.5, 38.1 and 31.1 seconds, completion at 39.3, 76.3, 93.9 and 68.1.
+#: At 30 only two of four were inside their window; 38.5 caught all four by
+#: under a second either side. At 45 three of four are inside it — W01 had
+#: already finished — at least 6.9 seconds after their first checkpoint and 23
+#: before completion, so the margin survives ordinary variation.
+INTERRUPTION_POLICY = dict(THIRTY_SECOND_POLICY, stop_after_seconds=45)
 
 #: Schema-2 plans (D-r03) were frozen under the first-progress rule, which the
 #: observation above retired. Kept so those plans still load as what they are.
@@ -92,7 +106,7 @@ LEGACY_INTERRUPTION_POLICY = {
 }
 
 #: The policy each plan schema must carry exactly.
-POLICY_FOR_SCHEMA = {2: FIRST_PROGRESS_POLICY, 3: INTERRUPTION_POLICY}
+POLICY_FOR_SCHEMA = {2: FIRST_PROGRESS_POLICY, 3: THIRTY_SECOND_POLICY, 4: INTERRUPTION_POLICY}
 
 
 def interruption_policy(plan: Dict[str, object]) -> Dict[str, object]:
@@ -641,7 +655,7 @@ def build_plan(
     arms = list(ARMS)
     random.Random("task-d-v05|%d" % seed).shuffle(arms)
     data = {
-        "schema_version": 3,
+        "schema_version": 4,
         "interruption": dict(INTERRUPTION_POLICY),
         "pair_id": "D-" + replicate,
         "replicate": replicate,
@@ -730,7 +744,7 @@ def _read_plan(path: Path) -> Dict[str, object]:
     if data.get("schema_version") == 1 and "interruption" in data:
         raise ValueError("a schema-1 pilot plan cannot carry an interruption policy")
     if (
-        data.get("schema_version") not in (1, 2, 3)
+        data.get("schema_version") not in (1, 2, 3, 4)
         or not isinstance(replicate, str)
         or re.fullmatch(r"r[0-9]{2,}", replicate) is None
         or data.get("pair_id") != "D-" + replicate
@@ -1052,6 +1066,112 @@ def _run_live_row(plan_path: Path, row: Dict[str, object], data: Dict[str, objec
             print("warning: left pilot workspace %s in place (%s)" % (temp, exc), file=sys.stderr)
 
 
+class _StateWatcher:
+    """Times every version of the checkpoint a running session writes.
+
+    Read-only and from outside: each probe round looks at
+    `.agent-handoff/state.md` and keeps a version, with when it was first
+    seen, whenever the text changes. `checkpoints.jsonl` times each write but
+    not what it said, and `state.md` itself is overwritten, so the first,
+    possibly empty checkpoint would otherwise be lost to the later ones.
+    """
+
+    def __init__(self, project: Path, started: float) -> None:
+        self.store = Store(project)
+        self.started = started
+        self.tracking_started: Optional[float] = None
+        self.versions: List[Dict[str, object]] = []
+
+    def __call__(self) -> None:
+        elapsed = round(time.monotonic() - self.started, 3)
+        if self.tracking_started is None and self.store.dir.is_dir():
+            self.tracking_started = elapsed
+        try:
+            text = self.store.state_file.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            return
+        if not self.versions or self.versions[-1]["text"] != text:
+            self.versions.append({"seen_at_seconds": elapsed, "text": text[:PACKAGE_CONTENT_CHARS]})
+
+
+def measure_window(destination: Path, model: str, cli_version: str, effort: str = "medium") -> Dict[str, object]:
+    """Run one Handoff source session to its end, uninterrupted, and time it.
+
+    A package can only help a recovery between the first substantive
+    checkpoint and completion; before that there is nothing to hand over,
+    after it nothing to recover. D-r04 to D-r06 were all stopped at 30
+    seconds, before the skill had written anything worth handing over, so
+    where that window lies on this task was never observed. This times it:
+    when tracking starts, each version of the checkpoint and when it
+    appeared, and when progress and full acceptance first pass. Nothing is
+    stopped early and nothing is compared; it calibrates the stop for the
+    next pairs. Spends one session of quota.
+    """
+    destination = Path(destination)
+    if destination.exists():
+        raise FileExistsError("measurement already exists: " + str(destination))
+    executable = shutil.which("codex")
+    if executable is None:
+        raise RuntimeError("Codex CLI is not on PATH")
+    version = subprocess.run(
+        [executable, "--version"], capture_output=True, text=True, encoding="utf-8",
+        errors="replace", timeout=30, check=True,
+    ).stdout.strip()
+    if version != cli_version:
+        raise RuntimeError("Codex CLI version mismatch: expected %r, got %r" % (cli_version, version))
+    calibration = calibrate()
+    if not calibration["calibration_passed"]:
+        raise RuntimeError("fixture/evaluator calibration failed")
+    skills = _skill_catalog(_codex_home())
+    handoffs = [item for item in skills if item[1] == "agent-handoff"]
+    if len(handoffs) != 1:
+        raise RuntimeError("the installed agent-handoff Skill is required")
+
+    temp = tempfile.mkdtemp(prefix="recovery-pilot-")
+    try:
+        project = Path(temp) / "project"
+        _initialize_project(project)
+        prompt = (FIXTURE / "prompt.md").read_text(encoding="utf-8")
+        visible = _preflight(prompt, project, "handoff", skills, executable, model, effort)
+        started = time.monotonic()
+        watch = _StateWatcher(project, started)
+
+        def progress_and_watch() -> bool:
+            watch()
+            return _run_check(project, "progress")
+
+        session = run_bounded_process(
+            _target_argv(prompt, model, effort, "handoff", skills), project, SOURCE_SECONDS,
+            env=_git_safe_env(project), progress_probe=progress_and_watch,
+            completion_probe=lambda: _run_check(project, "acceptance"), probe_interval=1.0,
+        )
+        watch()  # whatever the session left at its end
+        stdout, stderr = str(session.pop("stdout")), str(session.pop("stderr"))
+        first = next((v["seen_at_seconds"] for v in watch.versions if str(v["text"]).strip()), None)
+        record = {
+            "kind": "window_measurement",
+            "model": model, "effort": effort, "cli_version": version,
+            "skill_sha256": _sha256(handoffs[0][0]),
+            "fixture_sha256": _fixture_digest(),
+            "preflight_visible_user_skills": visible,
+            "session": session,
+            "tracking_started_seconds": watch.tracking_started,
+            "first_checkpoint_seconds": first,
+            "checkpoint_versions": watch.versions,
+            "completion_seconds": session.get("first_verified_completion_seconds"),
+            "contamination": contamination_findings("handoff", project, stdout, stderr),
+            "recorded_at": dt.datetime.now(dt.timezone.utc).isoformat(),
+        }
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        atomic_write(destination, json.dumps(record, ensure_ascii=False, indent=2) + "\n")
+        return record
+    finally:
+        try:
+            _remove_tree(Path(temp))
+        except OSError as exc:
+            print("warning: left pilot workspace %s in place (%s)" % (temp, exc), file=sys.stderr)
+
+
 def launch_next(path: Path) -> Dict[str, object]:
     executable = shutil.which("codex")
     if executable is None:
@@ -1164,7 +1284,25 @@ def main(argv: List[str] | None = None) -> int:
     parser.add_argument("--resolve-abandoned", metavar="TRIAL_ID", help="mark a dead local running row invalid; never rerun it")
     parser.add_argument("--withdraw", metavar="TRIAL_ID", help="retire a pending row that will not be run")
     parser.add_argument("--reason", default="", help="with --withdraw: why the row will not be run")
+    parser.add_argument("--measure-window", type=Path, metavar="RECORD",
+                        help="run one uninterrupted Handoff source session and time its checkpoints; needs --launch")
     args = parser.parse_args(argv)
+    if args.measure_window:
+        if args.plan or args.register_plan or args.calibrate:
+            parser.error("--measure-window is a separate action")
+        if not args.launch:
+            parser.error("--measure-window spends quota; add --launch to run it")
+        if not args.model or not args.cli_version:
+            parser.error("--measure-window requires --model and --cli-version")
+        try:
+            record = measure_window(args.measure_window, args.model, args.cli_version)
+        except (OSError, RuntimeError, ValueError, subprocess.SubprocessError) as exc:
+            parser.error(str(exc))
+        print("tracking %s s, first checkpoint %s s, completion %s s, %d checkpoint version(s)" % (
+            record["tracking_started_seconds"], record["first_checkpoint_seconds"],
+            record["completion_seconds"], len(record["checkpoint_versions"]),
+        ))
+        return 0
     if args.calibrate:
         if args.launch or args.plan or args.register_plan:
             parser.error("--calibrate cannot be combined with plan or launch actions")

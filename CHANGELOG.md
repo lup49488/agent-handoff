@@ -352,6 +352,15 @@ is still below 1.0, so the interface may still change.
 
 ### Documented
 
+- The window in which a handoff package can help, measured: four
+  uninterrupted Handoff sessions with the revised skill wrote a substantive
+  first checkpoint, before any edit, at 20.7 to 38.1 seconds and completed at
+  39.3 to 93.9. Recovery-pilot plans now stop the source session at 45
+  seconds (schema 4), inside the window in three of four; 30 seconds had been
+  inside it in two. `--measure-window` runs such a session and keeps each
+  version of the checkpoint with the time it appeared. Records are in
+  `benchmarks/results/window-2026-10-16/`.
+
 - Recovery-pilot pair D-r06, with the skill revised to checkpoint before the
   first edit. Its Handoff source had started tracking but written no
   checkpoint by the 30-second stop — it skipped the empty one as asked and

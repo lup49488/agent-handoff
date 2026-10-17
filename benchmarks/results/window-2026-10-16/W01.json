@@ -1,0 +1,39 @@
+{
+  "kind": "window_measurement",
+  "model": "gpt-5.6-terra",
+  "effort": "medium",
+  "cli_version": "codex-cli 0.160.0",
+  "skill_sha256": "5df7872427c6b7e412bc291cba949470fc9da671942d16011087b29ab3a3447e",
+  "fixture_sha256": "97fc0a59f60f91b79681de8cbb95750771434a36a88c82c9d03f3ef618cb0c0b",
+  "preflight_visible_user_skills": [
+    "agent-handoff"
+  ],
+  "session": {
+    "exit_code": 0,
+    "timed_out": false,
+    "elapsed_seconds": 54.61,
+    "started_at": "2026-10-17T02:49:58.386814+00:00",
+    "finished_at": "2026-10-17T02:50:53.004816+00:00",
+    "first_verified_progress_seconds": 39.313,
+    "first_verified_completion_seconds": 39.313,
+    "interrupted_by_trigger": false,
+    "trigger": null,
+    "trigger_seconds": null,
+    "process_tree_terminated": true
+  },
+  "tracking_started_seconds": 12.594,
+  "first_checkpoint_seconds": 20.719,
+  "checkpoint_versions": [
+    {
+      "seen_at_seconds": 20.719,
+      "text": "# Current Objective\n\nExtend export CSV projection and null rendering while preserving default CSV/JSON behavior\n\n# Completed\n\n- Inspected schema.py, csv_export.py, json_export.py, cli.py, and public tests.\n\n# Decisions\n\n- Centralize ordered field-to-row-cell projection in schema; CSV validates delimiter/columns before destination open, while JSON ignores CSV-only settings.\n\n# Next Suggested Step\n\nPatch schema, writers, and CLI; run unittest.\n"
+    },
+    {
+      "seen_at_seconds": 54.61,
+      "text": "# Current Objective\n\nExtend export CSV projection and null rendering while preserving default CSV/JSON behavior\n\n# Completed\n\n- Inspected schema.py, csv_export.py, json_export.py, cli.py, and public tests.\n- Centralized schema projection in schema.values_for and updated both writers to use it.\n- Added CSV delimiter/columns validation before opening destinations, column projection, null rendering, and CLI options.\n- Confirmed public test suite passes.\n\n# Decisions\n\n- Centralize ordered field-to-row-cell projection in schema; CSV validates delimiter/columns before destination open, while JSON ignores CSV-only settings.\n- JSON writer remains insulated from CSV-only options; CSV uses csv.writer standard quoting with UTF-8 streams.\n\n# Next Suggested Step\n\nReview final diff and hand off completed work.\n"
+    }
+  ],
+  "completion_seconds": 39.313,
+  "contamination": [],
+  "recorded_at": "2026-10-17T02:50:53.013156+00:00"
+}
