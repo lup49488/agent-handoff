@@ -1,10 +1,11 @@
 # Recovery Benchmark v0.4 Pilot Proposal
 
-Status: two pairs have run under the fixed 30-second rule, `D-r04` and
-`D-r05`, in opposite arm orders; in both, every source session was interrupted
-and every recovery ran (see [D-r04](#d-r04-the-first-interrupted-pair) and
-[D-r05](#d-r05-the-package-recovery-received)). They point in opposite
-directions and are exploratory. Before them, five source sessions under two earlier rules all finished first:
+Status: three pairs have run under the fixed 30-second rule — `D-r04`,
+`D-r05`, and `D-r06` with a revised skill — and in all three every source
+session was interrupted and every recovery ran. They point in different
+directions and are exploratory; together they show that a 30-second stop comes
+before the skill has anything worth handing over (see
+[D-r06](#d-r06-a-skill-that-checkpoints-before-editing)). Before them, five source sessions under two earlier rules all finished first:
 `D-r01` (v0.4 fixture) and `D-r02` (v0.5) under a five-minute wall-clock
 cutoff, and `D-baseline-r03` under a first-progress trigger. `D-handoff-r03`
 was withdrawn before it ran (see
@@ -267,6 +268,53 @@ it would do next — and on this task that point comes after the moment a
 stop is most likely to hurt. Whether the skill should checkpoint earlier and
 with more substance, for instance once the code is read and a plan is
 chosen, is a question for the skill, and the next thing worth testing.
+
+### D-r06: a skill that checkpoints before editing
+
+The skill was revised (commit `86d7b9b`, SKILL.md sha256 `5df78724…`; D-r01
+to D-r05 used `b5e6403a…`) to ask for the first checkpoint once the relevant
+code is read and an approach chosen, before any edit, and to skip a
+checkpoint that only restates the task. Registered Baseline first (seed
+20261017), alternating with D-r04 and D-r05.
+
+| | Baseline | Handoff |
+|---|---:|---:|
+| Source stopped by the trigger | 30.2 s | 30.1 s |
+| Recovery reaches full acceptance | 88.0 s | 69.3 s |
+| Recovery session exits | 106.1 s | 106.6 s |
+
+Both recoveries passed full acceptance within budget, in scope, with no
+contamination and every process tree ended.
+
+**The package held no checkpoint at all.** The Handoff source session started
+tracking about 15 seconds in and had written no checkpoint when it was stopped
+at 30: it skipped the empty checkpoint, as the revision asked, and had not yet
+reached the substantive one. The recovery received only the task and an empty
+repository.
+
+**The revision does what it asks — later.** The checkpoint the Handoff
+*recovery* session wrote opens with the kind of entry the revision was meant
+to produce: which four files it inspected, what the CSV and JSON paths
+currently do, and that no code had changed yet; then decisions with their
+reasons. It is substantive. It simply comes after 30 seconds.
+
+**So the 18.7-second difference is noise.** With no checkpoint in the package,
+the two recoveries started from the same information; whatever separated
+them, it was not the treatment. That makes D-r06 a measure of the noise
+floor: across the three pairs, Handoff − Baseline was +40.1, −27.1 and −18.7
+seconds, and only in D-r05 did the package hold anything at all — a
+restatement of the task.
+
+**The structural finding.** A handoff package can only help in a window: from
+the moment the first substantive checkpoint is written until the task is
+complete. Before it there is nothing to hand over; after it there is nothing
+to recover. On this task the agent starts tracking around 15 seconds, has not
+checkpointed by 30, and writes the whole solution between 35 and 90 seconds,
+so the window is late and may be narrow. A fixed stop has to fall inside it to
+test the package at all, and 30 seconds falls before it. Where the window is,
+and how wide, is the next thing to measure — from uninterrupted Handoff
+sessions, whose `checkpoints.jsonl` times the first checkpoint and whose
+probes time completion — before choosing another stop.
 - Randomize which arm runs first. Run one process at a time. Pre-register the
   pair and write each trial record before the first model call.
 - Use only synthetic/public task data. Keep authentication material and raw

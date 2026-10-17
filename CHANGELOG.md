@@ -352,6 +352,16 @@ is still below 1.0, so the interface may still change.
 
 ### Documented
 
+- Recovery-pilot pair D-r06, with the skill revised to checkpoint before the
+  first edit. Its Handoff source had started tracking but written no
+  checkpoint by the 30-second stop — it skipped the empty one as asked and
+  had not reached the substantive one — so the package held only the task,
+  and the Handoff recovery's 18.7-second lead is noise. The recovery's own
+  checkpoint shows the revision working: it records the files read, what
+  they do and the decisions taken, after 30 seconds. A package can help only
+  between the first substantive checkpoint and completion; 30 seconds falls
+  before that window.
+
 - Recovery-pilot pair D-r05, run Handoff first to balance D-r04. Its Handoff
   recovery reached acceptance in 39.6 seconds against the Baseline's 66.7 —
   the reverse of D-r04 — and in each pair the arm that ran first was faster,
