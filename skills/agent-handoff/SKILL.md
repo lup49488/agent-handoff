@@ -34,6 +34,7 @@ handoff tests "python -m pytest -q" --exit-code 0 --summary "291 passed"
 ```
 
 - Never claim a test passed or a handoff was verified without having run the corresponding command in the current task.
+- Record a result only after you have read its output, and state what the output said—"check_report: 2 mismatches, B 09-17 and 09-23", not what you expect it to say. Do not chain `handoff tests` or a checkpoint that states a result onto the command that produces it, and do not write the result into a checkpoint before the command has finished: a slow check that has not returned, or that failed, must not be recorded as passing. A successor trusts a recorded pass and may stop on it.
 
 ## Hand work over safely
 
