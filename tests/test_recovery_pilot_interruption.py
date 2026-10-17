@@ -424,6 +424,19 @@ def test_task_e_calibrates_against_its_own_public_check(default_fixture_afterwar
     assert variants["reference"]["scope_violations"] == []
 
 
+def test_the_source_snapshot_sees_edits_but_not_the_handoff_state(tmp_path, default_fixture_afterwards):
+    """A window measurement times the first edit, which a checkpoint is not."""
+    pilot.use_fixture("task-e")
+    pilot._install_variant(tmp_path, "project")
+    before = pilot._source_snapshot(tmp_path)
+    (tmp_path / "HANDOFF.md").write_text("checkpoint", encoding="utf-8")
+    assert pilot._source_snapshot(tmp_path) == before
+
+    (tmp_path / "report" / "timezones.py").write_text("# edited", encoding="utf-8")
+    after = pilot._source_snapshot(tmp_path)
+    assert [name for name in after if after[name] != before[name]] == ["report/timezones.py"]
+
+
 # -- a stop that cannot reach the whole process tree ---------------------------
 
 

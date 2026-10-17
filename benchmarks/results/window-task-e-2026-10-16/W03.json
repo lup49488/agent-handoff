@@ -1,0 +1,46 @@
+{
+  "kind": "window_measurement",
+  "fixture": "task-e",
+  "model": "gpt-5.6-terra",
+  "effort": "medium",
+  "cli_version": "codex-cli 0.160.0",
+  "skill_sha256": "5df7872427c6b7e412bc291cba949470fc9da671942d16011087b29ab3a3447e",
+  "fixture_sha256": "08994d35ffe4f67524a4478cb4d0d3e9f2dc0ecdb71a790f122d0cfa3f1fea38",
+  "preflight_visible_user_skills": [
+    "agent-handoff"
+  ],
+  "session": {
+    "exit_code": 0,
+    "timed_out": false,
+    "elapsed_seconds": 48.141,
+    "started_at": "2026-10-17T05:06:33.716680+00:00",
+    "finished_at": "2026-10-17T05:07:21.858823+00:00",
+    "first_verified_progress_seconds": 31.985,
+    "first_verified_completion_seconds": 33.172,
+    "interrupted_by_trigger": false,
+    "trigger": null,
+    "trigger_seconds": null,
+    "process_tree_terminated": true
+  },
+  "tracking_started_seconds": 24.844,
+  "first_checkpoint_seconds": 29.594,
+  "first_edit": {
+    "seconds": 31.985,
+    "files": [
+      "report/timezones.py"
+    ]
+  },
+  "checkpoint_versions": [
+    {
+      "seen_at_seconds": 29.594,
+      "text": "# Current Objective\n\nCorrect store B business-day placement while preserving integer-cent accounting and documented local-time rules.\n\n# Completed\n\n- Inspected aggregation, timezone, refund, ledger, configuration, debug and checker code; reproduced four mismatches, all for B.\n- Confirmed stores.ini gives B UTC-03:30. parse_offset applies the negative sign only to hours, yielding UTC-02:30; refund_day uses the UTC calendar date.\n\n# Decisions\n\n- Apply the sign to both offset components and route refunds through business_day(to_local(...), cutoff), matching NOTES.md's issued business-day rule.\n\n# Next Suggested Step\n\nPatch report/timezones.py and report/refunds.py, then run checker and targeted boundary tests.\n"
+    },
+    {
+      "seen_at_seconds": 48.141,
+      "text": "# Current Objective\n\nCorrect store B business-day placement while preserving integer-cent accounting and documented local-time rules.\n\n# Completed\n\n- Inspected aggregation, timezone, refund, ledger, configuration, debug and checker code; reproduced four mismatches, all for B.\n- Confirmed stores.ini gives B UTC-03:30. parse_offset applies the negative sign only to hours, yielding UTC-02:30; refund_day uses the UTC calendar date.\n- Fixed negative UTC-offset parsing so the sign applies to both hours and minutes.\n- Changed refund booking to the issued store-local business day, using the configured cutoff.\n- python check_report.py passes all 12 store-days; targeted offset/refund boundary assertions and compileall pass.\n\n# Decisions\n\n- Apply the sign to both offset components and route refunds through business_day(to_local(...), cutoff), matching NOTES.md's issued business-day rule.\n- No input, expected-total, settings, or checker files were modified.\n\n# Next Suggested Step\n\nReview the two-file diff or hand off the verified fix.\n"
+    }
+  ],
+  "completion_seconds": 33.172,
+  "contamination": [],
+  "recorded_at": "2026-10-17T05:07:21.861821+00:00"
+}

@@ -503,6 +503,36 @@ Before any pair, the stop time has to be chosen again: 45 seconds was where
 task D's sessions had read the code and not yet edited it, and an
 investigation is expected to take longer. That needs `--measure-window
 --fixture task-e` sessions, which spend quota.
+
+### Task E's window: there is none
+
+Four uninterrupted sessions (`benchmarks/results/window-task-e-2026-10-16/`,
+the same model, effort and CLI as task D's), now also timing the first edit to
+a file the solution changes:
+
+| | first checkpoint | first edit | progress | acceptance | exit |
+|---|---:|---:|---:|---:|---:|
+| W01 | 34.8 s | 37.2 s | 37.2 s | 48.3 s | 67.7 s |
+| W02 | 21.3 s | 22.5 s | 22.5 s | 30.3 s | 42.5 s |
+| W03 | 29.6 s | 32.0 s | 32.0 s | 33.2 s | 48.1 s |
+| W04 | 40.3 s | 45.1 s | 45.1 s | 46.3 s | 60.1 s |
+
+Every session solved the task faster than task D's did, and none
+investigated in the sense the fixture was built for. They read the code,
+ran `check_report.py` and `debug_report.py` once, and saw both causes: the
+zone header printed `UTC-02:30` against `-03:30` in `stores.ini`, and
+`refund_day` visibly contradicts the rule `NOTES.md` states. None of the
+planted misleads was followed. The checkpoint was written 1.2 to 4.8 seconds
+before the first edit, so a stop placed after the findings and before an
+edit would have to land in a window a few seconds wide whose position varies
+by twenty.
+
+What this shows about the design: a bug that one run of a provided tool
+exposes is not an investigation, however little the code shows. For the
+findings to be expensive to repeat, finding them has to cost something a
+successor would pay again — runs that take real time, causes that only
+appear when inputs are varied, or more plausible causes than can be read in
+a minute. Task E as it stands cannot measure the package either.
 - Randomize which arm runs first. Run one process at a time. Pre-register the
   pair and write each trial record before the first model call.
 - Use only synthetic/public task data. Keep authentication material and raw

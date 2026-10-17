@@ -154,6 +154,11 @@ is still below 1.0, so the interface may still change.
   trial ids carry its letter (`E-r01`). A fixture can declare its public
   check in `public_check.txt` — task E's is `check_report.py`, not unittest.
   Plans without a fixture are read as task D.
+- Window measurements record the first edit to a file the solution changes.
+  On task E it came 1.2 to 4.8 seconds after the first checkpoint in four
+  sessions that finished in 30 to 48 seconds: both bugs were plain from one
+  run of `debug_report.py` and a rule stated in `NOTES.md`, so task E, like
+  task D, leaves no window for a package to help in.
 
 - pytest always prints the names of failing tests (`-rf`). One intermittent
   failure in a full local run went unidentified because a quiet run reports

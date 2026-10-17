@@ -1184,9 +1184,16 @@ def measure_window(
         visible = _preflight(prompt, project, "handoff", skills, executable, model, effort)
         started = time.monotonic()
         watch = _StateWatcher(project, started)
+        sources = _source_snapshot(project)
+        first_edit: Dict[str, object] = {}
 
         def progress_and_watch() -> bool:
             watch()
+            if not first_edit:
+                now = _source_snapshot(project)
+                changed = sorted(name for name in set(now) | set(sources) if now.get(name) != sources.get(name))
+                if changed:
+                    first_edit.update(seconds=round(time.monotonic() - started, 3), files=changed)
             return _run_check(project, "progress")
 
         session = run_bounded_process(
@@ -1207,6 +1214,7 @@ def measure_window(
             "session": session,
             "tracking_started_seconds": watch.tracking_started,
             "first_checkpoint_seconds": first,
+            "first_edit": first_edit or None,
             "checkpoint_versions": watch.versions,
             "completion_seconds": session.get("first_verified_completion_seconds"),
             "contamination": contamination_findings("handoff", project, stdout, stderr),
@@ -1220,6 +1228,21 @@ def measure_window(
             _remove_tree(Path(temp))
         except OSError as exc:
             print("warning: left pilot workspace %s in place (%s)" % (temp, exc), file=sys.stderr)
+
+
+def _source_snapshot(project: Path) -> Dict[str, bytes]:
+    """The files a solution may change, other than the handoff state, as they are now.
+
+    The first change to one of them is where the session stopped investigating
+    and started editing -- the latest a stop can come and still find only
+    findings, not edits, to hand over.
+    """
+    snapshot = {}
+    for name in sorted(ALLOWED_CHANGES - {"HANDOFF.md"}):
+        path = project / name
+        if path.is_file():
+            snapshot[name] = path.read_bytes()
+    return snapshot
 
 
 def launch_next(path: Path) -> Dict[str, object]:

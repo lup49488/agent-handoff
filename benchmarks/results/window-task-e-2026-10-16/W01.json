@@ -1,0 +1,46 @@
+{
+  "kind": "window_measurement",
+  "fixture": "task-e",
+  "model": "gpt-5.6-terra",
+  "effort": "medium",
+  "cli_version": "codex-cli 0.160.0",
+  "skill_sha256": "5df7872427c6b7e412bc291cba949470fc9da671942d16011087b29ab3a3447e",
+  "fixture_sha256": "08994d35ffe4f67524a4478cb4d0d3e9f2dc0ecdb71a790f122d0cfa3f1fea38",
+  "preflight_visible_user_skills": [
+    "agent-handoff"
+  ],
+  "session": {
+    "exit_code": 0,
+    "timed_out": false,
+    "elapsed_seconds": 67.656,
+    "started_at": "2026-10-17T05:04:22.056140+00:00",
+    "finished_at": "2026-10-17T05:05:29.724731+00:00",
+    "first_verified_progress_seconds": 37.172,
+    "first_verified_completion_seconds": 48.281,
+    "interrupted_by_trigger": false,
+    "trigger": null,
+    "trigger_seconds": null,
+    "process_tree_terminated": true
+  },
+  "tracking_started_seconds": 16.843,
+  "first_checkpoint_seconds": 34.781,
+  "first_edit": {
+    "seconds": 37.187,
+    "files": [
+      "report/timezones.py"
+    ]
+  },
+  "checkpoint_versions": [
+    {
+      "seen_at_seconds": 34.781,
+      "text": "# Current Objective\n\nRepair Store B daily sales report totals without altering supplied data or business rules.\n\n# Completed\n\n- Inspected business-day and refund rules plus report flow. Finance mismatches occur only for Store B. debug_report shows B configured -03:30 but displayed as UTC-02:30.\n\n# Decisions\n\n- Fix report.timezones.parse_offset: negative fractional offsets must negate both hours and minutes. This correctly restores Store B local times before the existing 04:00 cutoff logic; refunds remain booked to issued business day per NOTES.md.\n\n# Next Suggested Step\n\nPatch parse_offset, then run python check_report.py and targeted placement verification.\n"
+    },
+    {
+      "seen_at_seconds": 67.671,
+      "text": "# Current Objective\n\nRepair Store B daily sales report totals without altering supplied data or business rules.\n\n# Completed\n\n- Inspected business-day and refund rules plus report flow. Finance mismatches occur only for Store B. debug_report shows B configured -03:30 but displayed as UTC-02:30.\n- Corrected negative fractional UTC offsets so -03:30 remains -03:30, not -02:30. Updated refund booking to use the issuing store's local business day and configured cutoff. python check_report.py now reports all 12 store-days match finance.\n\n# Decisions\n\n- Fix report.timezones.parse_offset: negative fractional offsets must negate both hours and minutes. This correctly restores Store B local times before the existing 04:00 cutoff logic; refunds remain booked to issued business day per NOTES.md.\n- Both sales and refunds now consistently use local-time business-day placement; this preserves NOTES.md rules that refunds use issuance day rather than original-sale day.\n\n# Next Suggested Step\n\nWork is complete; review the two reporting-code changes if needed.\n"
+    }
+  ],
+  "completion_seconds": 48.281,
+  "contamination": [],
+  "recorded_at": "2026-10-17T05:05:29.733231+00:00"
+}
