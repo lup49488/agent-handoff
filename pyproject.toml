@@ -19,3 +19,6 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# Always name failures in the summary: one intermittent failure went
+# unidentified because a quiet run printed only a count.
+addopts = "-rf"

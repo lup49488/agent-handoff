@@ -142,6 +142,10 @@ is still below 1.0, so the interface may still change.
 
 ### Added
 
+- pytest always prints the names of failing tests (`-rf`). One intermittent
+  failure in a full local run went unidentified because a quiet run reports
+  only a count, and six further runs did not reproduce it.
+
 - `plan.py --withdraw` marks a pending row that will never run, with the
   reason. Used on the four rows the `post-actions-r04` plan was left with,
   whose ids the contaminated v0.3 cohort had already used.
