@@ -41,7 +41,15 @@ from benchmarks.run_trial import TREE_LAUNCH, _codex_home, _kill_process_tree, _
 from benchmarks.run_trial import _contamination as _shared_contamination
 
 ROOT = Path(__file__).resolve().parents[1]
-FIXTURE = ROOT / "benchmarks" / "fixtures" / "task-d-v05"
+FIXTURES_DIR = ROOT / "benchmarks" / "fixtures"
+
+#: Plans registered before fixtures were selectable carry no `fixture`; they
+#: all ran task D v0.5 (D-r01's v0.4 plan can be read but not launched).
+DEFAULT_FIXTURE = "task-d-v05"
+
+#: The fixture in use. Set from the plan (or `--fixture`) by `use_fixture`
+#: before anything reads it.
+FIXTURE = FIXTURES_DIR / DEFAULT_FIXTURE
 ARMS = ("baseline", "handoff")
 SOURCE_SECONDS = 300
 RECOVERY_SECONDS = 600
@@ -138,6 +146,40 @@ def _allowed_changes() -> set:
 
 
 ALLOWED_CHANGES = _allowed_changes()
+
+
+def use_fixture(name: str) -> None:
+    """Point the pilot at one fixture under `benchmarks/fixtures/`.
+
+    A fixture is a directory with `prompt.md`, `progress.py`, `acceptance.py`,
+    the initial `project/`, and `partial/` and `reference/` variants holding
+    only the files they change. Task D was the only fixture until task E;
+    which one a plan uses is recorded in it.
+    """
+    global FIXTURE, ALLOWED_CHANGES
+    path = FIXTURES_DIR / name
+    required = ("prompt.md", "progress.py", "acceptance.py", "project", "partial", "reference")
+    if not path.is_dir() or not all((path / item).exists() for item in required):
+        raise ValueError("not a recovery-pilot fixture: %s" % name)
+    FIXTURE = path
+    ALLOWED_CHANGES = _allowed_changes()
+
+
+def _task_letter() -> str:
+    """The letter pair and trial ids carry: `task-d-v05` is D, `task-e` is E."""
+    return FIXTURE.name.split("-")[1].upper()
+
+
+def _public_check_args() -> List[str]:
+    """How a fixture's public check runs: `public_check.txt`, else unittest.
+
+    Task D's public check is its unittest suite; task E's is a script,
+    `check_report.py`. Calibration requires the reference to pass it.
+    """
+    declared = FIXTURE / "public_check.txt"
+    if declared.is_file():
+        return declared.read_text(encoding="utf-8").split()
+    return ["-m", "unittest", "-v"]
 
 
 def _sha256(path: Path) -> str:
@@ -642,8 +684,9 @@ def _git_safe_env(project: Path) -> Dict[str, str]:
 
 def build_plan(
     seed: int, model: str, cli_version: str, skill: Dict[str, str],
-    effort: str = "medium", replicate: str = "r01",
+    effort: str = "medium", replicate: str = "r01", fixture: str = DEFAULT_FIXTURE,
 ) -> Dict[str, object]:
+    use_fixture(fixture)
     if not isinstance(seed, int) or isinstance(seed, bool):
         raise ValueError("seed must be an integer")
     if not isinstance(replicate, str) or re.fullmatch(r"r[0-9]{2,}", replicate) is None:
@@ -656,8 +699,9 @@ def build_plan(
     random.Random("task-d-v05|%d" % seed).shuffle(arms)
     data = {
         "schema_version": 4,
+        "fixture": fixture,
         "interruption": dict(INTERRUPTION_POLICY),
-        "pair_id": "D-" + replicate,
+        "pair_id": "%s-%s" % (_task_letter(), replicate),
         "replicate": replicate,
         "seed": seed,
         "model": model.strip(),
@@ -674,7 +718,7 @@ def build_plan(
         "skill": dict(skill),
         "created_at": dt.datetime.now(dt.timezone.utc).isoformat(),
         "rows": [
-            {"trial_id": "D-%s-%s" % (arm, replicate), "arm": arm, "position": i, "state": "pending"}
+            {"trial_id": "%s-%s-%s" % (_task_letter(), arm, replicate), "arm": arm, "position": i, "state": "pending"}
             for i, arm in enumerate(arms, 1)
         ],
     }
@@ -694,7 +738,7 @@ def _plan_manifest_hash(data: Dict[str, object]) -> str:
             "fixture_sha256", "prompt_sha256", "evaluator_sha256", "skill", "created_at",
         )
     }
-    for optional in ("replicate", "interruption"):
+    for optional in ("replicate", "interruption", "fixture"):
         if optional in data:
             immutable[optional] = data[optional]
     immutable["rows"] = rows
@@ -704,7 +748,7 @@ def _plan_manifest_hash(data: Dict[str, object]) -> str:
 
 def register_plan(
     path: Path, seed: int, model: str, cli_version: str, effort: str = "medium",
-    replicate: str = "r01",
+    replicate: str = "r01", fixture: str = DEFAULT_FIXTURE,
 ) -> Dict[str, object]:
     if path.exists():
         raise FileExistsError("pilot plan already exists: " + str(path))
@@ -714,7 +758,7 @@ def register_plan(
     handoff = handoffs[0]
     data = build_plan(seed, model, cli_version, {
         "path": str(handoff[0]), "name": handoff[1], "sha256": _sha256(handoff[0]),
-    }, effort, replicate)
+    }, effort, replicate, fixture)
     for candidate in Path(path).parent.glob("*.json"):
         if candidate.resolve() == Path(path).resolve():
             continue
@@ -735,6 +779,7 @@ def register_plan(
 
 def _read_plan(path: Path) -> Dict[str, object]:
     data = json.loads(path.read_text(encoding="utf-8"))
+    use_fixture(str(data.get("fixture") or DEFAULT_FIXTURE))
     replicate = data.get("replicate")
     if replicate is None and data.get("pair_id") == "D-r01":
         replicate = "r01"  # v0.4 plans predate the explicit replicate field.
@@ -747,7 +792,7 @@ def _read_plan(path: Path) -> Dict[str, object]:
         data.get("schema_version") not in (1, 2, 3, 4)
         or not isinstance(replicate, str)
         or re.fullmatch(r"r[0-9]{2,}", replicate) is None
-        or data.get("pair_id") != "D-" + replicate
+        or data.get("pair_id") != "%s-%s" % (_task_letter(), replicate)
     ):
         raise ValueError("unsupported recovery pilot plan")
     rows = data.get("rows")
@@ -755,7 +800,7 @@ def _read_plan(path: Path) -> Dict[str, object]:
             or [row.get("arm") for row in rows] not in (list(ARMS), list(reversed(ARMS)))):
         raise ValueError("pilot plan must contain exactly one row per arm")
     if any(
-        row.get("trial_id") != "D-%s-%s" % (row.get("arm"), replicate)
+        row.get("trial_id") != "%s-%s-%s" % (_task_letter(), row.get("arm"), replicate)
         or row.get("position") != index
         for index, row in enumerate(rows, 1)
     ):
@@ -1094,7 +1139,10 @@ class _StateWatcher:
             self.versions.append({"seen_at_seconds": elapsed, "text": text[:PACKAGE_CONTENT_CHARS]})
 
 
-def measure_window(destination: Path, model: str, cli_version: str, effort: str = "medium") -> Dict[str, object]:
+def measure_window(
+    destination: Path, model: str, cli_version: str, effort: str = "medium",
+    fixture: str = DEFAULT_FIXTURE,
+) -> Dict[str, object]:
     """Run one Handoff source session to its end, uninterrupted, and time it.
 
     A package can only help a recovery between the first substantive
@@ -1107,6 +1155,7 @@ def measure_window(destination: Path, model: str, cli_version: str, effort: str 
     stopped early and nothing is compared; it calibrates the stop for the
     next pairs. Spends one session of quota.
     """
+    use_fixture(fixture)
     destination = Path(destination)
     if destination.exists():
         raise FileExistsError("measurement already exists: " + str(destination))
@@ -1150,6 +1199,7 @@ def measure_window(destination: Path, model: str, cli_version: str, effort: str 
         first = next((v["seen_at_seconds"] for v in watch.versions if str(v["text"]).strip()), None)
         record = {
             "kind": "window_measurement",
+            "fixture": fixture,
             "model": model, "effort": effort, "cli_version": version,
             "skill_sha256": _sha256(handoffs[0][0]),
             "fixture_sha256": _fixture_digest(),
@@ -1202,13 +1252,10 @@ def _run(project: Path, script: str, *args: str) -> subprocess.CompletedProcess:
 
 
 def _install_variant(project: Path, variant: str) -> None:
-    shutil.copytree(FIXTURE / variant, project, dirs_exist_ok=True)
-    for shared in ("csv_export.py", "json_export.py"):
-        if not (project / shared).exists():
-            shutil.copy2(FIXTURE / "project" / shared, project / shared)
-    public_tests = FIXTURE / "project" / "test_public.py"
-    if not (project / "test_public.py").exists():
-        shutil.copy2(public_tests, project / "test_public.py")
+    """The whole initial project, with a variant's changed files laid over it."""
+    shutil.copytree(FIXTURE / "project", project, dirs_exist_ok=True)
+    if variant != "project":
+        shutil.copytree(FIXTURE / variant, project, dirs_exist_ok=True)
 
 
 def _check(project: Path, evaluator: str) -> bool:
@@ -1239,7 +1286,7 @@ def calibrate() -> Dict[str, object]:
             _install_variant(project, variant)
             progress = _check(project, "progress")
             acceptance = _check(project, "acceptance")
-            tests = _run(project, "-m", "unittest", "-v")
+            tests = _run(project, *_public_check_args())
             report["variants"][variant] = {
                 "progress": progress,
                 "acceptance": acceptance,
@@ -1284,6 +1331,8 @@ def main(argv: List[str] | None = None) -> int:
     parser.add_argument("--resolve-abandoned", metavar="TRIAL_ID", help="mark a dead local running row invalid; never rerun it")
     parser.add_argument("--withdraw", metavar="TRIAL_ID", help="retire a pending row that will not be run")
     parser.add_argument("--reason", default="", help="with --withdraw: why the row will not be run")
+    parser.add_argument("--fixture", default=DEFAULT_FIXTURE,
+                        help="fixture under benchmarks/fixtures for --calibrate, --register-plan, --measure-window")
     parser.add_argument("--measure-window", type=Path, metavar="RECORD",
                         help="run one uninterrupted Handoff source session and time its checkpoints; needs --launch")
     args = parser.parse_args(argv)
@@ -1295,7 +1344,7 @@ def main(argv: List[str] | None = None) -> int:
         if not args.model or not args.cli_version:
             parser.error("--measure-window requires --model and --cli-version")
         try:
-            record = measure_window(args.measure_window, args.model, args.cli_version)
+            record = measure_window(args.measure_window, args.model, args.cli_version, fixture=args.fixture)
         except (OSError, RuntimeError, ValueError, subprocess.SubprocessError) as exc:
             parser.error(str(exc))
         print("tracking %s s, first checkpoint %s s, completion %s s, %d checkpoint version(s)" % (
@@ -1306,6 +1355,10 @@ def main(argv: List[str] | None = None) -> int:
     if args.calibrate:
         if args.launch or args.plan or args.register_plan:
             parser.error("--calibrate cannot be combined with plan or launch actions")
+        try:
+            use_fixture(args.fixture)
+        except ValueError as exc:
+            parser.error(str(exc))
         report = calibrate()
         print(json.dumps(report, ensure_ascii=False, indent=2))
         return 0 if report["calibration_passed"] else 1
@@ -1317,7 +1370,7 @@ def main(argv: List[str] | None = None) -> int:
         try:
             plan = register_plan(
                 args.register_plan, args.seed, args.model, args.cli_version,
-                replicate=args.replicate,
+                replicate=args.replicate, fixture=args.fixture,
             )
         except (OSError, ValueError) as exc:
             parser.error(str(exc))

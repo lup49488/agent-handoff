@@ -449,6 +449,60 @@ pre-interruption state takes real investigation whose findings are not
 visible in the files, so that a fresh session without them would have to
 repeat it. Adding pairs on task D would cost quota without being able to
 answer the question.
+
+### Task E: an investigation the files do not record
+
+`benchmarks/fixtures/task-e` is built for that. A small, stdlib-only daily
+sales report disagrees with finance's figures for store B on four days;
+stores A and C match. The prompt asks for `python check_report.py` to pass
+without touching the data, the expected figures or the store settings, and
+points at `debug_report.py`, which prints for one store how each transaction
+is placed: its UTC time, the local time the report computes, and the day it
+is booked to.
+
+Two bugs cause the four wrong days, and neither can be seen by reading the
+code that is wrong:
+
+- **An offset loses its sign on the minutes.** `parse_offset` turns `-03:30`
+  into −02:30. Store B is the only public store with a negative offset that
+  has minutes, so its local times come out an hour late, and sales made
+  between 03:00 and 03:59 — which belong to the previous business day, since
+  the day starts at 04:00 — are booked to the next one. `debug_report.py --store B` shows
+  the zone as `UTC-02:30`; the line that computes it looks right.
+- **A refund is booked to its UTC date.** `refund_day` uses the UTC date
+  instead of the local business day, so B8, a refund at 22:30 local on
+  09-14, is booked to 09-15. Fixing the first bug alone leaves this day
+  wrong, which is what makes the fixture's partial state.
+
+The project also carries what an investigation has to rule out: a `FIXME`
+in `money.py` about rounding drift on store B, a note in `NOTES.md` blaming
+it, and a `TODO` in `refunds.py` about booking refunds to the original sale's
+day — all wrong. What a session learns before the stop is therefore which
+causes were tried and ruled out and what `debug_report.py` showed, none of
+which is on disk unless it was written down.
+
+The evaluators embed rows the project never sees. `progress.py` holds the
+sales of every store plus a hidden store D at −09:30, and passes once offsets
+are parsed correctly; `acceptance.py` adds refunds whose UTC date differs
+from their business day in stores A, C and D, so a fix that special-cases
+`-03:30` or store B fails both. Calibration is the same as task D's, except
+that the public check is `check_report.py` (`public_check.txt`) instead of a
+unittest suite:
+
+| State | progress | acceptance | `check_report.py` |
+|---|:-:|:-:|:-:|
+| initial | fail | fail | fail |
+| partial (offset fixed) | pass | fail | fail |
+| reference (both fixed) | pass | pass | pass |
+
+Plans now record their fixture (`--fixture task-e` when registering, measuring
+a window or calibrating), and pair and trial ids take the fixture's letter:
+`E-r01`, `E-baseline-r01`. Plans without the field are task D.
+
+Before any pair, the stop time has to be chosen again: 45 seconds was where
+task D's sessions had read the code and not yet edited it, and an
+investigation is expected to take longer. That needs `--measure-window
+--fixture task-e` sessions, which spend quota.
 - Randomize which arm runs first. Run one process at a time. Pre-register the
   pair and write each trial record before the first model call.
 - Use only synthetic/public task data. Keep authentication material and raw

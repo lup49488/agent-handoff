@@ -142,6 +142,19 @@ is still below 1.0, so the interface may still change.
 
 ### Added
 
+- Recovery-pilot task E, an investigation whose findings are not on disk.
+  Eight pairs on task D showed the package cannot help there: everything a
+  session learns before the stop is reading four short files, which its
+  successor has to redo to edit them. Task E's report is wrong for one store
+  because of two bugs visible only by running it — an offset whose minutes
+  lose their sign, and refunds booked to their UTC date — with a misleading
+  rounding note and TODO to rule out. Hidden evaluator rows (another store,
+  refunds in every store) fail fixes that special-case store B.
+- The recovery pilot takes `--fixture`; plans record theirs, and pair and
+  trial ids carry its letter (`E-r01`). A fixture can declare its public
+  check in `public_check.txt` — task E's is `check_report.py`, not unittest.
+  Plans without a fixture are read as task D.
+
 - pytest always prints the names of failing tests (`-rf`). One intermittent
   failure in a full local run went unidentified because a quiet run reports
   only a count, and six further runs did not reproduce it.

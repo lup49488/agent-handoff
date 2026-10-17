@@ -356,6 +356,74 @@ def test_calibration_holds_the_reference_to_the_scope_audit():
     assert variants["partial"]["scope_violations"] == []
 
 
+# -- which fixture a plan runs ------------------------------------------------
+
+
+@pytest.fixture
+def default_fixture_afterwards():
+    """`use_fixture` sets module state; put task D back for the other tests."""
+    yield
+    pilot.use_fixture(pilot.DEFAULT_FIXTURE)
+
+
+def test_a_plan_records_its_fixture_and_names_its_pair_after_it(tmp_path, default_fixture_afterwards):
+    plan = pilot.build_plan(7, "m", "codex-cli test", skill(), replicate="r01", fixture="task-e")
+    path = tmp_path / "plan.json"
+    path.write_text(json.dumps(plan), encoding="utf-8")
+    pilot.use_fixture(pilot.DEFAULT_FIXTURE)
+
+    pilot._read_plan(path)
+
+    assert plan["fixture"] == "task-e"
+    assert plan["pair_id"] == "E-r01"
+    assert {row["trial_id"] for row in plan["rows"]} == {"E-baseline-r01", "E-handoff-r01"}
+    assert pilot.FIXTURE.name == "task-e"
+    assert "report/refunds.py" in pilot.ALLOWED_CHANGES
+
+
+def test_a_plan_without_a_fixture_is_task_d(tmp_path, default_fixture_afterwards):
+    """Every plan registered before fixtures were selectable ran task D v0.5."""
+    plan = pilot.build_plan(7, "m", "codex-cli test", skill(), replicate="r02")
+    plan.pop("fixture")
+    plan["manifest_sha256"] = pilot._plan_manifest_hash(plan)
+    path = tmp_path / "plan.json"
+    path.write_text(json.dumps(plan), encoding="utf-8")
+    pilot.use_fixture("task-e")
+
+    pilot._read_plan(path)
+
+    assert pilot.FIXTURE.name == "task-d-v05"
+
+
+def test_a_plan_cannot_be_moved_to_another_fixture(tmp_path, default_fixture_afterwards):
+    plan = pilot.build_plan(7, "m", "codex-cli test", skill(), replicate="r03", fixture="task-e")
+    plan["fixture"] = "task-d-v05"
+    path = tmp_path / "plan.json"
+    path.write_text(json.dumps(plan), encoding="utf-8")
+
+    with pytest.raises(ValueError):
+        pilot._read_plan(path)
+
+
+def test_an_unknown_fixture_is_refused(default_fixture_afterwards):
+    with pytest.raises(ValueError, match="not a recovery-pilot fixture"):
+        pilot.use_fixture("task-z")
+
+
+def test_task_e_calibrates_against_its_own_public_check(default_fixture_afterwards):
+    """Task E has no unittest suite; its public check is `check_report.py`."""
+    pilot.use_fixture("task-e")
+    result = pilot.calibrate()
+
+    assert result["calibration_passed"], result
+    variants = result["variants"]
+    assert not variants["project"]["progress"]
+    assert variants["partial"]["progress"] and not variants["partial"]["acceptance"]
+    assert not variants["partial"]["public_tests"]
+    assert variants["reference"]["acceptance"] and variants["reference"]["public_tests"]
+    assert variants["reference"]["scope_violations"] == []
+
+
 # -- a stop that cannot reach the whole process tree ---------------------------
 
 
