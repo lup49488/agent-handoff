@@ -573,7 +573,7 @@ different receipts. Wrong fixes tried against them:
 Progress is every genuine sale on its right business day, so a fix that
 drops genuine sales fails it as well.
 
-### Task E v2's window: it exists, and the skill leaves it empty
+### Task E v2's window: it exists
 
 Four uninterrupted sessions (`benchmarks/results/window-task-e-v2-2026-10-16/`):
 
@@ -596,18 +596,43 @@ and what it learned — which receipts, which tills, that the copies are exact
 and why the key must include the till — was nowhere on disk until the fix
 was. A stop at 60 seconds would have landed inside that stretch in all four.
 
-**The skill leaves it empty.** Each session wrote its checkpoint before the
-first edit, as the revised skill asks, and then not again until the work was
-done. At any stop inside the window the package would have held the offset
-diagnosis, which the successor can see in the diff, and nothing about the
-duplicates. The rule asks for a checkpoint before the first edit; what
-matters here is a checkpoint whenever new findings come before an edit.
+**Whether the skill fills it, these records cannot say.** Each shows two
+checkpoint versions, one before the first edit and one at exit, and the one
+at exit describes the duplicates. That looked like a skill that checkpoints
+before its first edit and then not until it is done, and the skill was
+revised for it (below). But the checkpoint was only looked at while progress
+was being probed, which stops once progress passes: from progress to exit it
+went unwatched, and a version written inside the window would be recorded
+as seen at exit. The window is exactly what these records leave unobserved.
 
-W03 recorded no first edit: the edit landed between the snapshot and the
-progress check of the same probe round, progress passed, and the progress
-probe — the only place edits were looked for — was not called again. Edits
-are now looked for every round, each one is recorded with its time and
-files, and a failed look is recorded rather than swallowed.
+W03 recorded no first edit for the same reason: the edit landed between the
+snapshot and the progress check of one probe round, progress passed, and the
+progress probe — the only place edits were looked for — was not called
+again. Edits are now looked for every round, each one is recorded with its
+time and files, and a failed look is recorded rather than swallowed.
+
+### W05–W08: the revised skill, measured with the same blind spot
+
+The skill now asks for a checkpoint before every edit that follows new
+findings, not only the first. Four more sessions ran with it before the
+checkpoint watcher was fixed:
+
+| | first checkpoint | first edit | acceptance | exit |
+|---|---:|---:|---:|---:|
+| W05 | 57.0 s | 60.9 s | 104.4 s | 141.6 s |
+| W06 | 25.2 s | 27.8 s | 53.2 s | 85.4 s |
+| W07 | 33.8 s | 37.7 s | 65.5 s | 79.5 s |
+| W08 | 39.8 s | 43.7 s | 106.7 s | 147.0 s |
+
+All passed acceptance, uncontaminated, with the same two causes found the
+same way, and again the window from the offset fix to acceptance ran 25 to
+63 seconds. They show the same two versions as W01–W04 and say no more
+about the window, for the same reason; the second edit's time is likewise
+only bounded by acceptance, since the probes stop when acceptance passes.
+
+The checkpoint is now watched every round until acceptance, and each record
+also keeps the time of every checkpoint write from the package's own
+`checkpoints.jsonl`, which polling cannot miss.
 - Randomize which arm runs first. Run one process at a time. Pre-register the
   pair and write each trial record before the first model call.
 - Use only synthetic/public task data. Keep authentication material and raw

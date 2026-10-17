@@ -452,6 +452,26 @@ def test_a_fixture_can_put_a_whole_package_in_scope(default_fixture_afterwards):
     assert not pilot.in_scope("report/dedupe.py")
 
 
+def test_checkpoint_writes_are_timed_from_the_package_log(tmp_path):
+    """Polling can miss a version; the log has every write."""
+    import datetime as dt
+
+    log = tmp_path / ".agent-handoff" / "checkpoints.jsonl"
+    log.parent.mkdir()
+    log.write_text(
+        '{"ts": "2026-10-17T10:00:31+00:00", "tokens": 120}\n'
+        'not json\n'
+        '{"ts": "2026-10-17T10:01:12+00:00", "tokens": 260}\n',
+        encoding="utf-8",
+    )
+    started = dt.datetime(2026, 10, 17, 10, 0, 0, tzinfo=dt.timezone.utc)
+
+    assert pilot._checkpoint_writes(tmp_path, started) == [
+        {"seconds": 31.0, "tokens": 120}, {"seconds": 72.0, "tokens": 260},
+    ]
+    assert pilot._checkpoint_writes(tmp_path / "missing", started) == []
+
+
 # -- a stop that cannot reach the whole process tree ---------------------------
 
 

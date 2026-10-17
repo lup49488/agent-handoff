@@ -1207,6 +1207,7 @@ def measure_window(
         prompt = (FIXTURE / "prompt.md").read_text(encoding="utf-8")
         visible = _preflight(prompt, project, "handoff", skills, executable, model, effort)
         started = time.monotonic()
+        started_wall = dt.datetime.now(dt.timezone.utc)
         watch = _StateWatcher(project, started)
         sources = _source_snapshot(project)
         last_seen = [sources]
@@ -1235,6 +1236,10 @@ def measure_window(
             return _run_check(project, "progress")
 
         def completion_and_watch() -> bool:
+            # The progress probe stops once progress passes; without this the
+            # checkpoint went unwatched from progress to the end, and a
+            # checkpoint written in between was timed as if written at exit.
+            watch()
             look_for_edit()
             return _run_check(project, "acceptance")
 
@@ -1245,6 +1250,7 @@ def measure_window(
         )
         watch()  # whatever the session left at its end
         look_for_edit()
+        writes = _checkpoint_writes(project, started_wall)
         stdout, stderr = str(session.pop("stdout")), str(session.pop("stderr"))
         first = next((v["seen_at_seconds"] for v in watch.versions if str(v["text"]).strip()), None)
         record = {
@@ -1261,6 +1267,7 @@ def measure_window(
             "edits": edits,
             "edit_probe_errors": edit_probe_errors,
             "checkpoint_versions": watch.versions,
+            "checkpoint_writes": writes,
             "completion_seconds": session.get("first_verified_completion_seconds"),
             "contamination": contamination_findings("handoff", project, stdout, stderr),
             "recorded_at": dt.datetime.now(dt.timezone.utc).isoformat(),
@@ -1273,6 +1280,28 @@ def measure_window(
             _remove_tree(Path(temp))
         except OSError as exc:
             print("warning: left pilot workspace %s in place (%s)" % (temp, exc), file=sys.stderr)
+
+
+def _checkpoint_writes(project: Path, started_wall: dt.datetime) -> List[Dict[str, object]]:
+    """When each checkpoint was written, from the package's own log, to the second.
+
+    Polling sees only the versions it happens to look at; the log has every
+    write, though not what it said.
+    """
+    writes = []
+    try:
+        lines = Store(project).checkpoints_file.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return writes
+    for line in lines:
+        try:
+            record = json.loads(line)
+            written = dt.datetime.fromisoformat(str(record["ts"]))
+        except (ValueError, KeyError, TypeError):
+            continue
+        writes.append({"seconds": round((written - started_wall).total_seconds(), 1),
+                       "tokens": record.get("tokens")})
+    return writes
 
 
 def _source_snapshot(project: Path) -> Dict[str, bytes]:
