@@ -410,9 +410,10 @@ def test_an_unknown_fixture_is_refused(default_fixture_afterwards):
         pilot.use_fixture("task-z")
 
 
-def test_task_e_calibrates_against_its_own_public_check(default_fixture_afterwards):
+@pytest.mark.parametrize("fixture", ["task-e", "task-e-v2"])
+def test_task_e_calibrates_against_its_own_public_check(fixture, default_fixture_afterwards):
     """Task E has no unittest suite; its public check is `check_report.py`."""
-    pilot.use_fixture("task-e")
+    pilot.use_fixture(fixture)
     result = pilot.calibrate()
 
     assert result["calibration_passed"], result
@@ -435,6 +436,20 @@ def test_the_source_snapshot_sees_edits_but_not_the_handoff_state(tmp_path, defa
     (tmp_path / "report" / "timezones.py").write_text("# edited", encoding="utf-8")
     after = pilot._source_snapshot(tmp_path)
     assert [name for name in after if after[name] != before[name]] == ["report/timezones.py"]
+
+
+def test_a_fixture_can_put_a_whole_package_in_scope(default_fixture_afterwards):
+    """Task E v2's deduplication is right in the loader, the aggregation or a module of its own."""
+    pilot.use_fixture("task-e-v2")
+
+    assert pilot.in_scope("report/ledger.py")
+    assert pilot.in_scope("report/dedupe.py")
+    assert pilot.in_scope("HANDOFF.md")
+    assert not pilot.in_scope("data/transactions.csv")
+    assert not pilot.in_scope("check_report.py")
+
+    pilot.use_fixture(pilot.DEFAULT_FIXTURE)
+    assert not pilot.in_scope("report/dedupe.py")
 
 
 # -- a stop that cannot reach the whole process tree ---------------------------

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import fnmatch
 import hashlib
 import json
 import os
@@ -148,6 +149,28 @@ def _allowed_changes() -> set:
 ALLOWED_CHANGES = _allowed_changes()
 
 
+def _allowed_patterns() -> List[str]:
+    """Further files a fixture lets a solution change, as glob patterns.
+
+    Where a fix can sensibly go in more than one file -- task E v2's
+    deduplication belongs in the ledger loader or in the aggregation, and
+    either is right -- the fixture says so in `scope.txt`, one pattern a
+    line. Without it, only what the variants change is in scope.
+    """
+    declared = FIXTURE / "scope.txt"
+    if not declared.is_file():
+        return []
+    lines = declared.read_text(encoding="utf-8").splitlines()
+    return [line.strip() for line in lines if line.strip() and not line.lstrip().startswith("#")]
+
+
+ALLOWED_PATTERNS = _allowed_patterns()
+
+
+def in_scope(name: str) -> bool:
+    return name in ALLOWED_CHANGES or any(fnmatch.fnmatchcase(name, pattern) for pattern in ALLOWED_PATTERNS)
+
+
 def use_fixture(name: str) -> None:
     """Point the pilot at one fixture under `benchmarks/fixtures/`.
 
@@ -156,13 +179,14 @@ def use_fixture(name: str) -> None:
     only the files they change. Task D was the only fixture until task E;
     which one a plan uses is recorded in it.
     """
-    global FIXTURE, ALLOWED_CHANGES
+    global FIXTURE, ALLOWED_CHANGES, ALLOWED_PATTERNS
     path = FIXTURES_DIR / name
     required = ("prompt.md", "progress.py", "acceptance.py", "project", "partial", "reference")
     if not path.is_dir() or not all((path / item).exists() for item in required):
         raise ValueError("not a recovery-pilot fixture: %s" % name)
     FIXTURE = path
     ALLOWED_CHANGES = _allowed_changes()
+    ALLOWED_PATTERNS = _allowed_patterns()
 
 
 def _task_letter() -> str:
@@ -505,7 +529,7 @@ def scope_violations(project: Path, baseline_head: str) -> List[str]:
         ["git", "ls-files", "--others", "--exclude-standard"], cwd=str(project),
         env=env, capture_output=True, text=True, encoding="utf-8", check=True,
     ).stdout.splitlines()
-    return sorted({path for path in tracked + unstaged + untracked if path not in ALLOWED_CHANGES})
+    return sorted({path for path in tracked + unstaged + untracked if not in_scope(path)})
 
 
 def diff_evidence(project: Path, baseline_head: str) -> Dict[str, object]:
@@ -1238,10 +1262,13 @@ def _source_snapshot(project: Path) -> Dict[str, bytes]:
     findings, not edits, to hand over.
     """
     snapshot = {}
-    for name in sorted(ALLOWED_CHANGES - {"HANDOFF.md"}):
-        path = project / name
-        if path.is_file():
-            snapshot[name] = path.read_bytes()
+    for path in sorted(project.rglob("*")):
+        name = path.relative_to(project).as_posix()
+        if (not path.is_file() or name == "HANDOFF.md" or not in_scope(name)
+                or any(part in (".git", ".agent-handoff", "__pycache__")
+                       for part in path.relative_to(project).parts)):
+            continue
+        snapshot[name] = path.read_bytes()
     return snapshot
 
 

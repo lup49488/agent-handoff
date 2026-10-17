@@ -159,6 +159,11 @@ is still below 1.0, so the interface may still change.
   sessions that finished in 30 to 48 seconds: both bugs were plain from one
   run of `debug_report.py` and a rule stated in `NOTES.md`, so task E, like
   task D, leaves no window for a package to help in.
+- Recovery-pilot task E v2. The offset bug stays; the tools stop printing it,
+  the refund bug is gone, and the second cause is in a four-week ledger: two
+  tills' exports re-imported, the same receipts under new ids. Evaluators
+  check the ledger's hash and add a re-import at another store and two
+  genuine look-alike sales. A fixture may widen its scope in `scope.txt`.
 
 - pytest always prints the names of failing tests (`-rf`). One intermittent
   failure in a full local run went unidentified because a quiet run reports
