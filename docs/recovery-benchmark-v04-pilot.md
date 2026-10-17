@@ -867,9 +867,7 @@ it might have recorded after the checker's ten-second run was not written.
 to save it time, the difference is the recovery itself: both started from
 the same state on disk, one fixed offset, and both had to find the
 re-imported receipts. The Handoff recovery also read and verified the
-package and kept the checkpoint current, and its record of what it did
-lists the investigation in the same terms as the Baseline's diff implies.
-How much of 118 seconds that overhead accounts for, and how much is the
+package and kept the checkpoint current. How much of 118 seconds that overhead accounts for, and how much is the
 spread of a two-minute investigation, one pair cannot say; recovery time on
 task D varied from 32 to 113 seconds across arms.
 
