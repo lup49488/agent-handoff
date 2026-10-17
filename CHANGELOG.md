@@ -180,6 +180,9 @@ is still below 1.0, so the interface may still change.
   that follows new findings, four more sessions all recorded the duplicates
   before removing them — but 8 to 13 seconds before acceptance, so a package
   holds them only in a stretch too short and too variable for a fixed stop.
+  Revised again to record findings when established, sessions checkpoint the
+  narrowing within seconds of the offset fix but still write the decisive
+  finding just before, or after, the fix it calls for.
 
 - pytest always prints the names of failing tests (`-rf`). One intermittent
   failure in a full local run went unidentified because a quiet run reports

@@ -671,6 +671,47 @@ package holds something the disk does not is the few seconds between
 writing and editing. A package can only cover the investigation itself if
 findings are recorded when they are established: when a run confirms a
 cause or rules one out.
+
+### W13–W16: findings recorded when established
+
+The skill was revised again: record a finding when a run or a reading
+settles it, not when acting on it. Four sessions:
+
+| | first checkpoint | progress | narrowing recorded | duplicates recorded | acceptance | exit |
+|---|---:|---:|---:|---:|---:|---:|
+| W13 | 34.7 s | 39.1 s | 52.7 s | after acceptance | 112.0 s | 131.2 s |
+| W14 | 27.6 s | 35.2 s | 42.6 s | after acceptance | 99.2 s | 137.6 s |
+| W15 | 23.2 s | 36.6 s | 32.2 s | 48.2 s | 52.8 s | 66.7 s |
+| W16 | 31.5 s | 37.8 s | 48.5 s | 82.5 s | 90.3 s | 119.8 s |
+
+All passed acceptance uncontaminated; completion times are within the range
+of the earlier twelve, so the extra checkpoints cost nothing visible.
+
+**What changed is a checkpoint right after the offset fix.** Every session
+now writes one within 4 to 15 seconds of progress, and it records the
+narrowing: the offset fix verified, the 16 mismatches down to two, which two
+days and by how much, timezone placement ruled out for them, and the next
+step — compare those days' transactions with finance's figures. (W15
+spotted the duplicate import ids in the debug output before its first edit
+and recorded them as a suspicion at 23.2 s.)
+
+**What did not change is the decisive finding.** The re-imported receipts
+were written down 4.6 and 7.8 seconds before acceptance in W15 and W16, and
+in W13 and W14 only after the fix that removed them, despite the rule. Once
+a session sees the duplicates, the fix is a few lines and it makes it at
+once; the finding and the edit are one step to it.
+
+So inside the window the package now holds the narrowing and not the
+answer. That narrowing is real but cheap: a successor that runs
+`check_report.py` after the offset fix sees the two remaining days in a
+second. On this fixture a package could save a recovery only the time it
+takes to run the checker and decide timezone placement is no longer the
+problem — seconds, against recovery times that varied by tens of seconds
+in task D's pairs.
+
+For the package to matter, re-establishing what it records has to be
+expensive. Here every check runs in well under a second, so whatever an
+investigation narrows down, a successor can re-narrow by running it again.
 - Randomize which arm runs first. Run one process at a time. Pre-register the
   pair and write each trial record before the first model call.
 - Use only synthetic/public task data. Keep authentication material and raw
