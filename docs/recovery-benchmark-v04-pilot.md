@@ -798,6 +798,47 @@ checker as passed even though its output reported two mismatches"). On a
 fast fixture the check returns before anyone could notice; on a slow one
 the claim and the result come apart. The skill forbids claiming a test
 passed without having run it, but not recording a result before reading it.
+
+### W05–W08: results recorded from their output
+
+The skill now asks for a result to be recorded only after its output has
+been read, as the output states it, and never chained to the command that
+produces it. Four sessions:
+
+| | progress | narrowing recorded | duplicates recorded | acceptance | exit |
+|---|---:|---:|---:|---:|---:|
+| W05 | 63.8 s | with the duplicates | 155.1 s | 162.6 s | 229.8 s |
+| W06 | 42.0 s | 65.3 s | 146.3 s | 153.3 s | 184.8 s |
+| W07 | 43.4 s | 64.3 s | 127.3 s | 131.6 s | 153.7 s |
+| W08 | 50.0 s | 73.5 s | 146.5 s | 155.6 s | 222.2 s |
+
+All four passed acceptance uncontaminated. (W07's first attempt stopped
+before launching anything, on a calibration failure that did not recur in
+two reruns and whose cause the error did not say; a calibration failure now
+reports each variant's results and the end of its public check's output.)
+
+**No checkpoint claimed a result it had not seen.** Every one written inside
+the window quotes the checker: "Ran python check_report.py (exit 1): exactly
+2 mismatches remain: B 2026-09-17 report 356030.37 vs finance 355505.39; B
+2026-09-23 …" (W06). The claims of success appear only in the checkpoints
+written after acceptance.
+
+**Three of four recorded the narrowing within 22 to 24 seconds of
+progress** — the two days, the amounts, the offset ruled out for them, and
+the next step — and held it for 54 to 82 seconds of investigation before
+the duplicates were found. W05 wrote nothing between its first checkpoint
+and the duplicates.
+
+**The duplicates were recorded 4 to 9 seconds before acceptance,** as
+before: the decisive finding and its fix stay one step.
+
+So on task E v3 a stop at **100 seconds** lands, in all eight sessions
+measured, after the offset fix and before the duplicates are recorded; in
+three of the four with the current skill the package then holds the
+narrowing, read from a ten-second check, and in the fourth only what the
+diff shows. That is the most this fixture and skill offer a package: a
+successor that receives it can start on the two days at once, where one
+without it has to run the checker, wait, and decide what is left.
 - Randomize which arm runs first. Run one process at a time. Pre-register the
   pair and write each trial record before the first model call.
 - Use only synthetic/public task data. Keep authentication material and raw

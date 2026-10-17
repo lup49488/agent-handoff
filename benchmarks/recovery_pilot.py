@@ -506,6 +506,20 @@ def run_bounded_process(
     }
 
 
+def _calibration_summary(calibration: Dict[str, object]) -> str:
+    """Which variant broke calibration, and what its public check printed.
+
+    One task E v3 window measurement stopped on a calibration failure that
+    did not recur, with nothing recorded to say which check had failed.
+    """
+    parts = []
+    for variant, result in dict(calibration.get("variants") or {}).items():
+        facts = {key: result.get(key) for key in ("progress", "acceptance", "public_tests", "scope_violations")}
+        tail = str(result.get("test_output_tail") or "").strip().splitlines()[-3:]
+        parts.append("%s %s %s" % (variant, json.dumps(facts), " | ".join(tail)))
+    return "; ".join(parts)
+
+
 def _run_check(project: Path, evaluator: str) -> bool:
     result = _run(
         project, "-c",
@@ -1210,7 +1224,7 @@ def measure_window(
         raise RuntimeError("Codex CLI version mismatch: expected %r, got %r" % (cli_version, version))
     calibration = calibrate()
     if not calibration["calibration_passed"]:
-        raise RuntimeError("fixture/evaluator calibration failed")
+        raise RuntimeError("fixture/evaluator calibration failed: " + _calibration_summary(calibration))
     skills = _skill_catalog(_codex_home())
     handoffs = [item for item in skills if item[1] == "agent-handoff"]
     if len(handoffs) != 1:

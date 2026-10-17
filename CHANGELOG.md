@@ -13,6 +13,10 @@ is still below 1.0, so the interface may still change.
 
 ### Fixed
 
+- A failed calibration said only that it had failed. One task E v3 window
+  measurement stopped on one that did not recur; the error now reports each
+  variant's results and the end of its public check's output.
+
 - Window measurements were blind between progress and acceptance. The
   checkpoint and edits were looked at only while progress was probed, which
   stops once it passes, so a checkpoint written in the window — the one
@@ -193,7 +197,10 @@ is still below 1.0, so the interface may still change.
   fix to acceptance in four sessions), but two of the four packages there
   claimed `check_report.py` passed while it still reported two mismatches,
   one recorded nothing new, and the duplicates were again recorded seconds
-  before their fix.
+  before their fix. With the skill revised to record results only from their
+  output, four more sessions made no false claim, three recorded the
+  narrowing 22 to 24 seconds after the offset fix, and a stop at 100 seconds
+  falls inside the investigation in all eight.
 
 - pytest always prints the names of failing tests (`-rf`). One intermittent
   failure in a full local run went unidentified because a quiet run reports
