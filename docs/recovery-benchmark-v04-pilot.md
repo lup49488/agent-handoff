@@ -839,6 +839,44 @@ narrowing, read from a ten-second check, and in the fourth only what the
 diff shows. That is the most this fixture and skill offer a package: a
 successor that receives it can start on the two days at once, where one
 without it has to run the checker, wait, and decide what is left.
+
+### E-r01: the first pair on task E v3
+
+Registered under schema 5 (stop at 100 seconds), seed 20261021, Handoff
+first, with the skill measured in W05–W08.
+
+| | Handoff | Baseline |
+|---|---:|---:|
+| Source: progress (offset fixed) | 61.0 s | 37.1 s |
+| Source: stopped by the trigger | 100.8 s | 100.6 s |
+| Recovery reaches full acceptance | 251.8 s | 133.3 s |
+| Recovery session exits | 292.8 s | 163.2 s |
+
+Both sources were stopped with the offset fixed and the duplicates not yet
+found; both recoveries passed full acceptance within budget, in scope,
+uncontaminated, with every process tree ended.
+
+**The package held nothing the diff did not.** The Handoff source wrote one
+checkpoint, at about 29 seconds, before its first edit: the offset diagnosis
+and the plan to patch it. It made the patch at 61 seconds and wrote nothing
+more before the stop at 100, so this is the one case in four of W05–W08 —
+W05's — in which the package holds only what the diff shows. The narrowing
+it might have recorded after the checker's ten-second run was not written.
+
+**The Handoff recovery took 118 seconds longer.** With nothing in the package
+to save it time, the difference is the recovery itself: both started from
+the same state on disk, one fixed offset, and both had to find the
+re-imported receipts. The Handoff recovery also read and verified the
+package and kept the checkpoint current, and its record of what it did
+lists the investigation in the same terms as the Baseline's diff implies.
+How much of 118 seconds that overhead accounts for, and how much is the
+spread of a two-minute investigation, one pair cannot say; recovery time on
+task D varied from 32 to 113 seconds across arms.
+
+What E-r01 tests is therefore not what the design is for: with the package
+as thin as it was, any difference is overhead and noise. The pairs that can
+show an effect are those whose source recorded the narrowing before the
+stop, three in four by W05–W08's rate.
 - Randomize which arm runs first. Run one process at a time. Pre-register the
   pair and write each trial record before the first model call.
 - Use only synthetic/public task data. Keep authentication material and raw

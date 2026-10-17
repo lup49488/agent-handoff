@@ -204,6 +204,10 @@ is still below 1.0, so the interface may still change.
 - Schema-5 pilot plans stop the source session at 100 seconds, chosen from
   task E v3's eight window measurements; schema-4 plans (task D, D-r07 and
   D-r08) still read back as the 45-second rule they ran under.
+- Pilot pair E-r01, the first on task E v3: both sources stopped at 100
+  seconds with the offset fixed; the Handoff package held only what the
+  diff showed, and its recovery reached acceptance in 251.8 seconds against
+  the Baseline's 133.3.
 
 - pytest always prints the names of failing tests (`-rf`). One intermittent
   failure in a full local run went unidentified because a quiet run reports
