@@ -633,6 +633,44 @@ only bounded by acceptance, since the probes stop when acceptance passes.
 The checkpoint is now watched every round until acceptance, and each record
 also keeps the time of every checkpoint write from the package's own
 `checkpoints.jsonl`, which polling cannot miss.
+
+### W09–W12: the findings are written down, seconds before they are used
+
+Four sessions with the revised skill and the fixed watcher. "Duplicates
+recorded" is the first checkpoint write whose text describes the re-imported
+receipts:
+
+| | offset checkpoint | progress | duplicates recorded | acceptance | exit |
+|---|---:|---:|---:|---:|---:|
+| W09 | 28.9 s | 33.0 s | 74.9 s | 83.6 s | 106.6 s |
+| W10 | — | — | 48.6 s | 123.2 s | 157.7 s |
+| W11 | 57.7 s | 61.7 s | 95.7 s | 108.6 s | 145.9 s |
+| W12 | 16.7 s | 21.3 s | 34.7 s | 43.1 s | 54.4 s |
+
+All four passed acceptance uncontaminated. **The revised skill does what it
+says:** in every session a checkpoint describing the duplicates — receipts,
+tills, the sums they add, the key that identifies them — was written before
+the change that removes them. W10 found both causes before its first edit,
+checkpointed both at 48.6 s, and made both changes at once at about 123 s;
+from 48.6 s on, its package held everything it had learned and its disk
+nothing.
+
+**But it says it late.** The rule is to checkpoint before the edit, and the
+sessions did so immediately before it. In W09, W11 and W12 the investigation
+of the duplicates ran 42, 34 and 13 seconds from progress, and its findings
+reached the package only in its last moments, 8.7, 12.9 and 8.4 seconds
+before acceptance. A stop has to land in that last stretch for the package
+to carry what the successor lacks, and where the stretch falls varies from
+35 to 109 seconds: no fixed stop lands in more than two of the four, and
+none in W12's and W11's both. Before the duplicates were recorded the
+package holds the offset diagnosis, which the diff shows.
+
+This is the same narrowness task E v1 had, now one step later. As long as
+findings are written just before they are acted on, the window in which a
+package holds something the disk does not is the few seconds between
+writing and editing. A package can only cover the investigation itself if
+findings are recorded when they are established: when a run confirms a
+cause or rules one out.
 - Randomize which arm runs first. Run one process at a time. Pre-register the
   pair and write each trial record before the first model call.
 - Use only synthetic/public task data. Keep authentication material and raw

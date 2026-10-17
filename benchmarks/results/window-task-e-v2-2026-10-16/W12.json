@@ -1,0 +1,79 @@
+{
+  "kind": "window_measurement",
+  "fixture": "task-e-v2",
+  "model": "gpt-5.6-terra",
+  "effort": "medium",
+  "cli_version": "codex-cli 0.160.0",
+  "skill_sha256": "ca18bf3b5437521b6a822c2dc95cd6770420fc294def36397f62e483bf7a7363",
+  "fixture_sha256": "3e01e31cd8ba7c40a06416817d8624ae16849820a8bf9642d51538c687a1df8d",
+  "preflight_visible_user_skills": [
+    "agent-handoff"
+  ],
+  "session": {
+    "exit_code": 0,
+    "timed_out": false,
+    "elapsed_seconds": 54.406,
+    "started_at": "2026-10-17T15:59:00.379261+00:00",
+    "finished_at": "2026-10-17T15:59:54.776081+00:00",
+    "first_verified_progress_seconds": 21.297,
+    "first_verified_completion_seconds": 43.14,
+    "interrupted_by_trigger": false,
+    "trigger": null,
+    "trigger_seconds": null,
+    "process_tree_terminated": true
+  },
+  "tracking_started_seconds": 13.703,
+  "first_checkpoint_seconds": 18.766,
+  "first_edit": {
+    "seconds": 21.328,
+    "files": [
+      "report/timezones.py"
+    ]
+  },
+  "edits": [
+    {
+      "seconds": 21.328,
+      "files": [
+        "report/timezones.py"
+      ]
+    },
+    {
+      "seconds": 43.172,
+      "files": [
+        "report/ledger.py"
+      ]
+    }
+  ],
+  "edit_probe_errors": [],
+  "checkpoint_versions": [
+    {
+      "seen_at_seconds": 18.766,
+      "text": "# Current Objective\n\nFix daily sales report so Finance totals match, without changing input/expected data or documented business rules.\n\n# Completed\n\n- All 16 mismatches are Store B daily totals; stores A and C match.\n- Store B uses UTC-03:30. parse_offset constructs timedelta(hours=-3, minutes=30), which evaluates to UTC-02:30 rather than UTC-03:30.\n\n# Decisions\n\n- Correct signed offset construction in report/timezones.py. This explains only Store B drift: its negative offset includes nonzero minutes; business-day cutoffs are otherwise applied correctly.\n\n# Next Suggested Step\n\nPatch parse_offset to apply the sign to total offset minutes, then run check_report.py and record results.\n"
+    },
+    {
+      "seen_at_seconds": 36.297,
+      "text": "# Current Objective\n\nFix daily sales report so Finance totals match, without changing input/expected data or documented business rules.\n\n# Completed\n\n- All 16 mismatches are Store B daily totals; stores A and C match.\n- Store B uses UTC-03:30. parse_offset constructs timedelta(hours=-3, minutes=30), which evaluates to UTC-02:30 rather than UTC-03:30.\n- Correcting signed UTC offsets reduced 16 mismatches to two, confirming Store B's -03:30 was parsed as -02:30.\n- debug_report shows six duplicated Store B2 sales (same store/till/receipt) on Sep 17 totaling .53 and three duplicated Store B1 sales on Sep 23 totaling .76, exactly the remaining overages.\n\n# Decisions\n\n- Correct signed offset construction in report/timezones.py. This explains only Store B drift: its negative offset includes nonzero minutes; business-day cutoffs are otherwise applied correctly.\n- The ledger import assigns a fresh id each time it imports a till export, while terminal receipt is the source identifier and each till numbers its receipts. Deduplicate at load time by (store, terminal, receipt), retaining the first file-order record; this removes replayed import rows without suppressing distinct tills' receipts.\n\n# Next Suggested Step\n\nVerify these are the only duplicate receipt keys, then patch ledger loading and run the report check.\n"
+    },
+    {
+      "seen_at_seconds": 54.422,
+      "text": "# Current Objective\n\nFix daily sales report so Finance totals match, without changing input/expected data or documented business rules.\n\n# Completed\n\n- All 16 mismatches are Store B daily totals; stores A and C match.\n- Store B uses UTC-03:30. parse_offset constructs timedelta(hours=-3, minutes=30), which evaluates to UTC-02:30 rather than UTC-03:30.\n- Correcting signed UTC offsets reduced 16 mismatches to two, confirming Store B's -03:30 was parsed as -02:30.\n- debug_report shows six duplicated Store B2 sales (same store/till/receipt) on Sep 17 totaling .53 and three duplicated Store B1 sales on Sep 23 totaling .76, exactly the remaining overages.\n- Fixed negative fractional UTC offsets by applying the sign to total minutes.\n- Deduplicated replayed till imports by stable (store, terminal, receipt) identity; all nine duplicate receipt rows were replay copies and their amounts exactly matched the two residual overages.\n- python check_report.py passes: all 84 store-days match finance. report package compilation and git diff whitespace check also pass.\n\n# Decisions\n\n- Correct signed offset construction in report/timezones.py. This explains only Store B drift: its negative offset includes nonzero minutes; business-day cutoffs are otherwise applied correctly.\n- The ledger import assigns a fresh id each time it imports a till export, while terminal receipt is the source identifier and each till numbers its receipts. Deduplicate at load time by (store, terminal, receipt), retaining the first file-order record; this removes replayed import rows without suppressing distinct tills' receipts.\n- No input, expected-output, store configuration, or checker files were edited. The report continues to book transactions by local business day and refunds by their issue day.\n\n# Next Suggested Step\n\nReview final diff and hand off completed fix.\n"
+    }
+  ],
+  "checkpoint_writes": [
+    {
+      "seconds": 16.7,
+      "tokens": 174
+    },
+    {
+      "seconds": 34.7,
+      "tokens": 332
+    },
+    {
+      "seconds": 46.7,
+      "tokens": 464
+    }
+  ],
+  "completion_seconds": 43.14,
+  "contamination": [],
+  "recorded_at": "2026-10-17T15:59:54.816687+00:00"
+}

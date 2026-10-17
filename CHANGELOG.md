@@ -176,7 +176,10 @@ is still below 1.0, so the interface may still change.
   genuine look-alike sales. A fixture may widen its scope in `scope.txt`.
 - Task E v2 has a window: eight sessions spent 21 to 64 seconds between
   fixing the offset and finding the re-imported receipts, findings that were
-  on disk nowhere.
+  on disk nowhere. With the skill revised to checkpoint before every edit
+  that follows new findings, four more sessions all recorded the duplicates
+  before removing them — but 8 to 13 seconds before acceptance, so a package
+  holds them only in a stretch too short and too variable for a fixed stop.
 
 - pytest always prints the names of failing tests (`-rf`). One intermittent
   failure in a full local run went unidentified because a quiet run reports
