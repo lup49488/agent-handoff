@@ -199,10 +199,10 @@ def test_new_plans_freeze_the_fixed_time_rule(tmp_path):
     path = tmp_path / "plan.json"
     path.write_text(json.dumps(plan), encoding="utf-8")
 
-    assert plan["schema_version"] == 4
+    assert plan["schema_version"] == 5
     policy = pilot.interruption_policy(pilot._read_plan(path))
     assert policy == pilot.INTERRUPTION_POLICY
-    assert policy["trigger"] == "fixed_time" and policy["stop_after_seconds"] == 45
+    assert policy["trigger"] == "fixed_time" and policy["stop_after_seconds"] == 100
 
     plan["interruption"] = dict(plan["interruption"], stop_after_seconds=60)
     plan["manifest_sha256"] = pilot._plan_manifest_hash(plan)
@@ -323,6 +323,19 @@ def test_the_pilot_runs_as_a_script(tmp_path):
 
     assert result.returncode == 0, result.stderr
     assert "D-r05" in result.stdout
+
+
+def test_a_schema_4_plan_reads_back_as_the_45_second_rule(tmp_path):
+    """D-r07 and D-r08 were stopped at 45 seconds; their plans must still say so."""
+    plan = pilot.build_plan(7, "m", "codex-cli test", skill(), replicate="r08")
+    plan["schema_version"] = 4
+    plan["interruption"] = dict(pilot.FORTY_FIVE_SECOND_POLICY)
+    plan.pop("fixture")
+    plan["manifest_sha256"] = pilot._plan_manifest_hash(plan)
+    path = tmp_path / "plan.json"
+    path.write_text(json.dumps(plan), encoding="utf-8")
+
+    assert pilot.interruption_policy(pilot._read_plan(path))["stop_after_seconds"] == 45
 
 
 def test_a_schema_1_plan_reads_back_as_the_wall_clock_rule_it_ran_under(tmp_path):

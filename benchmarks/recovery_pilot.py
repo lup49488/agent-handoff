@@ -82,7 +82,7 @@ THIRTY_SECOND_POLICY = {
     "pack_handoff_arm": True,
 }
 
-#: The interruption rule frozen into every schema-4 plan: 45 seconds.
+#: The interruption rule frozen into every schema-4 plan: 45 seconds, for task D.
 #:
 #: Thirty seconds came before the skill had anything to hand over: in D-r05 the
 #: package held a restatement of the task, in D-r06 nothing. A package can only
@@ -94,7 +94,20 @@ THIRTY_SECOND_POLICY = {
 #: under a second either side. At 45 three of four are inside it — W01 had
 #: already finished — at least 6.9 seconds after their first checkpoint and 23
 #: before completion, so the margin survives ordinary variation.
-INTERRUPTION_POLICY = dict(THIRTY_SECOND_POLICY, stop_after_seconds=45)
+FORTY_FIVE_SECOND_POLICY = dict(THIRTY_SECOND_POLICY, stop_after_seconds=45)
+
+#: The interruption rule frozen into every schema-5 plan: 100 seconds, chosen
+#: for task E v3.
+#:
+#: Task D's 45 seconds came from task D's window. On task E v3 eight
+#: uninterrupted Handoff sessions (`window-task-e-v3-2026-10-17`, W01-W08)
+#: fixed the offset at 41.8-67.7 seconds and recorded the re-imported
+#: receipts at 127.3-187.4, 4 to 17 seconds before acceptance. At 100 every
+#: one of the eight is inside the investigation between the two; with the
+#: skill that records results only from their output (W05-W08), three of four
+#: packages then hold the narrowing -- the two days left and by how much --
+#: and the fourth only what the diff shows.
+INTERRUPTION_POLICY = dict(THIRTY_SECOND_POLICY, stop_after_seconds=100)
 
 #: Schema-2 plans (D-r03) were frozen under the first-progress rule, which the
 #: observation above retired. Kept so those plans still load as what they are.
@@ -115,7 +128,9 @@ LEGACY_INTERRUPTION_POLICY = {
 }
 
 #: The policy each plan schema must carry exactly.
-POLICY_FOR_SCHEMA = {2: FIRST_PROGRESS_POLICY, 3: THIRTY_SECOND_POLICY, 4: INTERRUPTION_POLICY}
+POLICY_FOR_SCHEMA = {
+    2: FIRST_PROGRESS_POLICY, 3: THIRTY_SECOND_POLICY, 4: FORTY_FIVE_SECOND_POLICY, 5: INTERRUPTION_POLICY,
+}
 
 
 def interruption_policy(plan: Dict[str, object]) -> Dict[str, object]:
@@ -740,7 +755,7 @@ def build_plan(
     arms = list(ARMS)
     random.Random("task-d-v05|%d" % seed).shuffle(arms)
     data = {
-        "schema_version": 4,
+        "schema_version": 5,
         "fixture": fixture,
         "interruption": dict(INTERRUPTION_POLICY),
         "pair_id": "%s-%s" % (_task_letter(), replicate),
@@ -831,7 +846,7 @@ def _read_plan(path: Path) -> Dict[str, object]:
     if data.get("schema_version") == 1 and "interruption" in data:
         raise ValueError("a schema-1 pilot plan cannot carry an interruption policy")
     if (
-        data.get("schema_version") not in (1, 2, 3, 4)
+        data.get("schema_version") not in (1, 2, 3, 4, 5)
         or not isinstance(replicate, str)
         or re.fullmatch(r"r[0-9]{2,}", replicate) is None
         or data.get("pair_id") != "%s-%s" % (_task_letter(), replicate)

@@ -201,6 +201,9 @@ is still below 1.0, so the interface may still change.
   output, four more sessions made no false claim, three recorded the
   narrowing 22 to 24 seconds after the offset fix, and a stop at 100 seconds
   falls inside the investigation in all eight.
+- Schema-5 pilot plans stop the source session at 100 seconds, chosen from
+  task E v3's eight window measurements; schema-4 plans (task D, D-r07 and
+  D-r08) still read back as the 45-second rule they ran under.
 
 - pytest always prints the names of failing tests (`-rf`). One intermittent
   failure in a full local run went unidentified because a quiet run reports
