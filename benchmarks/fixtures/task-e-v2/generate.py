@@ -204,7 +204,7 @@ for store in sorted(public_expected):
     for day, cents in sorted(public_expected[store].items()):
         sign = "-" if cents < 0 else ""
         lines.append("%s,%s,%s%d.%02d" % (store, day, sign, abs(cents) // 100, abs(cents) % 100))
-(FIX / "project" / "expected" / "daily_totals.csv").write_text("\n".join(lines) + "\n", encoding="utf-8")
+(FIX / "project" / "expected" / "daily_totals.csv").write_bytes(("\n".join(lines) + "\n").encode("utf-8"))
 
 COMMON = '''import csv
 import hashlib
