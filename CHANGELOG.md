@@ -189,6 +189,11 @@ is still below 1.0, so the interface may still change.
   A fixture's `prepare.py` now writes what it cannot ship into each project
   copy; v3's generates the ledger and finance's figures from a fixed seed.
   The evaluators judge the code on v2's ledger, embedded, to stay fast.
+- Task E v3's window is two minutes wide (106 to 142 seconds from the offset
+  fix to acceptance in four sessions), but two of the four packages there
+  claimed `check_report.py` passed while it still reported two mismatches,
+  one recorded nothing new, and the duplicates were again recorded seconds
+  before their fix.
 
 - pytest always prints the names of failing tests (`-rf`). One intermittent
   failure in a full local run went unidentified because a quiet run reports

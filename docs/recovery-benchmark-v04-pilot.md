@@ -751,6 +751,53 @@ now allows it 180 seconds and takes about 50 in all.
 | initial | fail | fail | fail (273 days) |
 | partial (offset fixed) | pass | fail | fail (2 days) |
 | reference | pass | pass | pass |
+
+### Task E v3's window: two minutes wide, and filled with a false claim
+
+Four uninterrupted sessions (`benchmarks/results/window-task-e-v3-2026-10-17/`),
+with the skill that asks for findings to be recorded when established:
+
+| | first checkpoint | progress | next checkpoint | duplicates recorded | acceptance | exit |
+|---|---:|---:|---:|---:|---:|---:|
+| W01 | 49.4 s | 56.2 s | 74.4 s | 154.4 s | 171.0 s | 235.0 s |
+| W02 | 62.3 s | 67.7 s | 122.3 s | 165.3 s | 174.3 s | 208.0 s |
+| W03 | 39.1 s | 41.8 s | 55.1 s | 179.1 s | 183.5 s | 215.0 s |
+| W04 | 58.4 s | 63.3 s | — | 187.4 s | 197.7 s | 224.7 s |
+
+All four passed acceptance uncontaminated, inside the 300-second budget.
+
+**The window is wide.** From progress to acceptance the sessions spent 106
+to 142 seconds on the two remaining days, against 13 to 64 on v2: with every
+run costing ten seconds, the investigation takes several. Any stop between
+about 70 and 150 seconds would land in it in all four.
+
+**What the package holds there is mostly wrong or already on disk:**
+
+- **W01 and W03 recorded a check result they had not seen.** Their
+  checkpoints after the offset fix say `check_report.py` "now reports every
+  expected store-day matches finance" (W03: "all 824 store-days match
+  finance (exit 0)") and that the next step is to hand off the verified
+  fix. The checker at that point reported two mismatches, and both sessions
+  went on investigating for another 100 seconds or more. A recovery handed
+  either package would be told the work was done and verified.
+- **W04 wrote nothing between its first checkpoint, before the offset fix,
+  and the duplicates.** For 129 seconds its package held the offset
+  diagnosis, which the diff shows.
+- **Only W02 recorded the narrowing,** at 122.3 seconds: two days left, by
+  how much, and that the offset bug cannot explain them — now worth two or
+  more ten-second runs to a successor.
+- **The duplicates were again recorded just before the fix:** 4.4 to 16.6
+  seconds before the edit that removed them.
+
+The false claims are the more serious finding. A checkpoint that states a
+result is only as good as the order it was written in: these read as if
+written with the edit, before the ten-second check returned, or chained to
+it so that the claim was recorded whatever the check printed (a v2 session,
+W14, noted that "the prior combined command accidentally recorded the
+checker as passed even though its output reported two mismatches"). On a
+fast fixture the check returns before anyone could notice; on a slow one
+the claim and the result come apart. The skill forbids claiming a test
+passed without having run it, but not recording a result before reading it.
 - Randomize which arm runs first. Run one process at a time. Pre-register the
   pair and write each trial record before the first model call.
 - Use only synthetic/public task data. Keep authentication material and raw
