@@ -472,6 +472,18 @@ def test_checkpoint_writes_are_timed_from_the_package_log(tmp_path):
     assert pilot._checkpoint_writes(tmp_path / "missing", started) == []
 
 
+def test_a_fixture_can_generate_what_it_cannot_ship(tmp_path, default_fixture_afterwards):
+    """Task E v3's million-row ledger is written by its prepare.py, not kept in git."""
+    pilot.use_fixture("task-e-v3")
+    pilot._copy_project(tmp_path)
+
+    with open(tmp_path / "data" / "transactions.csv", encoding="utf-8") as ledger:
+        assert ledger.readline() == "id,store,terminal,receipt,kind,utc,amount,ref\n"
+        assert ledger.readline().startswith("T")
+    assert (tmp_path / "expected" / "daily_totals.csv").read_text(encoding="utf-8").startswith("store,day,total\n")
+    assert not (pilot.FIXTURE / "project" / "data").exists()
+
+
 # -- a stop that cannot reach the whole process tree ---------------------------
 
 

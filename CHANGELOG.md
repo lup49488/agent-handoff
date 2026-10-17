@@ -183,6 +183,12 @@ is still below 1.0, so the interface may still change.
   Revised again to record findings when established, sessions checkpoint the
   narrowing within seconds of the offset fix but still write the decisive
   finding just before, or after, the fix it calls for.
+- Recovery-pilot task E v3: task E v2 with a nine-month, 1.8-million-row
+  ledger, so that every run of the report takes 10 to 13 seconds and what an
+  investigation establishes costs a successor real time to establish again.
+  A fixture's `prepare.py` now writes what it cannot ship into each project
+  copy; v3's generates the ledger and finance's figures from a fixed seed.
+  The evaluators judge the code on v2's ledger, embedded, to stay fast.
 
 - pytest always prints the names of failing tests (`-rf`). One intermittent
   failure in a full local run went unidentified because a quiet run reports

@@ -690,6 +690,10 @@ def _fixture_digest() -> str:
         if path.is_file():
             digest.update(path.relative_to(FIXTURE).as_posix().encode("utf-8"))
             digest.update(path.read_bytes())
+    prepare = FIXTURE / "prepare.py"
+    if prepare.is_file():  # what it generates is fixed by what it is
+        digest.update(b"prepare.py")
+        digest.update(prepare.read_bytes())
     return digest.hexdigest()
 
 
@@ -991,8 +995,20 @@ def invalidate_abandoned(path: Path, trial_id: str, *, alive: Callable[[int], bo
         _save_plan(path, data)
 
 
+def _copy_project(project: Path) -> None:
+    """The fixture's initial project, with anything it generates rather than ships.
+
+    Task E v3's ledger is a million rows, too large to keep in the
+    repository; its `prepare.py` writes it, from a fixed seed, into the copy.
+    """
+    shutil.copytree(FIXTURE / "project", project, dirs_exist_ok=True)
+    prepare = FIXTURE / "prepare.py"
+    if prepare.is_file():
+        subprocess.run([sys.executable, str(prepare), str(project)], check=True)
+
+
 def _initialize_project(project: Path) -> str:
-    shutil.copytree(FIXTURE / "project", project)
+    _copy_project(project)
     env = _git_safe_env(project)
     subprocess.run(["git", "init", "--quiet"], cwd=str(project), env=env, check=True)
     subprocess.run(["git", "add", "."], cwd=str(project), env=env, check=True)
@@ -1344,16 +1360,21 @@ def launch_next(path: Path) -> Dict[str, object]:
     return record
 
 
-def _run(project: Path, script: str, *args: str) -> subprocess.CompletedProcess:
+#: Task E v3's public check reads a million-row ledger and takes ten
+#: seconds or more by design; the evaluators stay well under the default.
+PUBLIC_CHECK_TIMEOUT = 180
+
+
+def _run(project: Path, script: str, *args: str, timeout: float = 10) -> subprocess.CompletedProcess:
     return subprocess.run(
         [sys.executable, script, *args], cwd=str(project), capture_output=True,
-        text=True, encoding="utf-8", errors="replace", timeout=10,
+        text=True, encoding="utf-8", errors="replace", timeout=timeout,
     )
 
 
 def _install_variant(project: Path, variant: str) -> None:
     """The whole initial project, with a variant's changed files laid over it."""
-    shutil.copytree(FIXTURE / "project", project, dirs_exist_ok=True)
+    _copy_project(project)
     if variant != "project":
         shutil.copytree(FIXTURE / variant, project, dirs_exist_ok=True)
 
@@ -1386,7 +1407,7 @@ def calibrate() -> Dict[str, object]:
             _install_variant(project, variant)
             progress = _check(project, "progress")
             acceptance = _check(project, "acceptance")
-            tests = _run(project, *_public_check_args())
+            tests = _run(project, *_public_check_args(), timeout=PUBLIC_CHECK_TIMEOUT)
             report["variants"][variant] = {
                 "progress": progress,
                 "acceptance": acceptance,

@@ -1,0 +1,3 @@
+# The deduplication can sensibly live in the ledger loader, the aggregation,
+# or a module of its own; any file of the report package is in scope.
+report/*.py

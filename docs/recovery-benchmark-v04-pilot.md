@@ -712,6 +712,45 @@ in task D's pairs.
 For the package to matter, re-establishing what it records has to be
 expensive. Here every check runs in well under a second, so whatever an
 investigation narrows down, a successor can re-narrow by running it again.
+
+### Task E v3: every run costs ten seconds
+
+`benchmarks/fixtures/task-e-v3` is task E v2's report, causes and evaluators
+with a ledger large enough that reading it takes time: nine months of five
+tills, 1.8 million rows, 99 MB. Store B is now wrong on every one of 273
+days; fixing the offset leaves the same two, 09-17 and 09-23.
+
+| | v2 | v3 |
+|---|---:|---:|
+| `check_report.py` | 0.1 s | 10–13 s |
+| `debug_report.py --store B --day 2026-09-17` | 0.1 s, 35 rows | 11 s, 2,736 rows |
+
+Anything that reads the ledger pays the same, a script of the agent's own
+included, and a day's placement is too long to read: the re-imported
+receipts can only be found by analysis. What an investigation establishes —
+which two days remain, that timezone placement is ruled out for them, which
+receipts repeat — now costs a successor several ten-second runs to establish
+again.
+
+The ledger is too large for the repository. `prepare.py` writes it into each
+project copy from a fixed seed (the harness runs it whenever it copies a
+fixture's project), caching it in the fixture's gitignored `.generated/`;
+generation takes about 8 seconds once. It computes finance's figures from
+what it knows — each transaction's true business day and which rows are
+re-imports — independently of the report code. The fixture digest includes
+`prepare.py`, since it fixes what is generated.
+
+The evaluators are probed every second and cannot read a 99 MB ledger, so
+they judge the report code on task E v2's ledger and hidden rows, embedded
+in them (`build_evaluators.py`); a fix that passes v3's public check passes
+them for the same reasons. The public check runs only in calibration, which
+now allows it 180 seconds and takes about 50 in all.
+
+| State | progress | acceptance | `check_report.py` |
+|---|:-:|:-:|:-:|
+| initial | fail | fail | fail (273 days) |
+| partial (offset fixed) | pass | fail | fail (2 days) |
+| reference | pass | pass | pass |
 - Randomize which arm runs first. Run one process at a time. Pre-register the
   pair and write each trial record before the first model call.
 - Use only synthetic/public task data. Keep authentication material and raw
