@@ -18,6 +18,8 @@ Use the installed `handoff` CLI as the source of durable task state. It records 
 
 At a material milestone—not after every command—automatically write a concise checkpoint. Record only what a successor cannot recover from Git or command output: the objective, what is settled, why it was decided that way, and the next step. Git already shows what changed.
 
+The first such milestone comes before any edit: as soon as you have read the code the task touches and chosen an approach, checkpoint what you learned—which files and functions matter and what they do now, the approach and why, and the concrete first change you are about to make. Until you edit, everything you have learned exists only in your context, so an interruption here loses all of it. A checkpoint that only restates the task or says inspection has started gives a successor nothing; skip it and write the substantive one instead.
+
 ```text
 handoff checkpoint --objective "..." --done "..." --decision "..." --next "..."
 ```
