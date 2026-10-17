@@ -1209,23 +1209,42 @@ def measure_window(
         started = time.monotonic()
         watch = _StateWatcher(project, started)
         sources = _source_snapshot(project)
-        first_edit: Dict[str, object] = {}
+        last_seen = [sources]
+        edits: List[Dict[str, object]] = []
+        edit_probe_errors: List[str] = []
+
+        def look_for_edit() -> None:
+            # Every round, not only while progress is probed: in W03 on task
+            # E v2 the edit landed between this snapshot and the progress
+            # check in the same round, progress passed, the progress probe
+            # was never called again, and no edit was recorded.
+            try:
+                now = _source_snapshot(project)
+            except OSError as exc:
+                edit_probe_errors.append("%.3f s: %s" % (time.monotonic() - started, exc))
+                return
+            before = last_seen[0]
+            changed = sorted(name for name in set(now) | set(before) if now.get(name) != before.get(name))
+            if changed:
+                edits.append({"seconds": round(time.monotonic() - started, 3), "files": changed})
+                last_seen[0] = now
 
         def progress_and_watch() -> bool:
             watch()
-            if not first_edit:
-                now = _source_snapshot(project)
-                changed = sorted(name for name in set(now) | set(sources) if now.get(name) != sources.get(name))
-                if changed:
-                    first_edit.update(seconds=round(time.monotonic() - started, 3), files=changed)
+            look_for_edit()
             return _run_check(project, "progress")
+
+        def completion_and_watch() -> bool:
+            look_for_edit()
+            return _run_check(project, "acceptance")
 
         session = run_bounded_process(
             _target_argv(prompt, model, effort, "handoff", skills), project, SOURCE_SECONDS,
             env=_git_safe_env(project), progress_probe=progress_and_watch,
-            completion_probe=lambda: _run_check(project, "acceptance"), probe_interval=1.0,
+            completion_probe=completion_and_watch, probe_interval=1.0,
         )
         watch()  # whatever the session left at its end
+        look_for_edit()
         stdout, stderr = str(session.pop("stdout")), str(session.pop("stderr"))
         first = next((v["seen_at_seconds"] for v in watch.versions if str(v["text"]).strip()), None)
         record = {
@@ -1238,7 +1257,9 @@ def measure_window(
             "session": session,
             "tracking_started_seconds": watch.tracking_started,
             "first_checkpoint_seconds": first,
-            "first_edit": first_edit or None,
+            "first_edit": edits[0] if edits else None,
+            "edits": edits,
+            "edit_probe_errors": edit_probe_errors,
             "checkpoint_versions": watch.versions,
             "completion_seconds": session.get("first_verified_completion_seconds"),
             "contamination": contamination_findings("handoff", project, stdout, stderr),

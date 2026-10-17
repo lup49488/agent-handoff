@@ -13,6 +13,11 @@ is still below 1.0, so the interface may still change.
 
 ### Fixed
 
+- Window measurements could miss the first edit. Edits were looked for only
+  while progress was being probed; when an edit and the progress it caused
+  fell in one probe round, as in task E v2's W03, none was recorded. Every
+  edit is now recorded, every round, with its files.
+
 - A recovery-pilot record could not say what the recovery session was handed.
   Only a hash of the package was kept and the workspace is deleted after each
   trial, so when D-handoff-r04 — in the first pair whose sessions were both
@@ -164,6 +169,10 @@ is still below 1.0, so the interface may still change.
   tills' exports re-imported, the same receipts under new ids. Evaluators
   check the ledger's hash and add a re-import at another store and two
   genuine look-alike sales. A fixture may widen its scope in `scope.txt`.
+- Task E v2 has a window: four sessions spent 21 to 64 seconds between
+  fixing the offset and finding the re-imported receipts, findings that were
+  on disk nowhere. None updated its checkpoint in that time, so a package
+  taken there would hold only what the diff already shows.
 
 - pytest always prints the names of failing tests (`-rf`). One intermittent
   failure in a full local run went unidentified because a quiet run reports

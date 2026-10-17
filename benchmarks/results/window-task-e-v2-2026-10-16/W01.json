@@ -1,0 +1,46 @@
+{
+  "kind": "window_measurement",
+  "fixture": "task-e-v2",
+  "model": "gpt-5.6-terra",
+  "effort": "medium",
+  "cli_version": "codex-cli 0.160.0",
+  "skill_sha256": "5df7872427c6b7e412bc291cba949470fc9da671942d16011087b29ab3a3447e",
+  "fixture_sha256": "3e01e31cd8ba7c40a06416817d8624ae16849820a8bf9642d51538c687a1df8d",
+  "preflight_visible_user_skills": [
+    "agent-handoff"
+  ],
+  "session": {
+    "exit_code": 0,
+    "timed_out": false,
+    "elapsed_seconds": 123.547,
+    "started_at": "2026-10-17T05:17:49.657690+00:00",
+    "finished_at": "2026-10-17T05:19:53.202610+00:00",
+    "first_verified_progress_seconds": 36.094,
+    "first_verified_completion_seconds": 97.031,
+    "interrupted_by_trigger": false,
+    "trigger": null,
+    "trigger_seconds": null,
+    "process_tree_terminated": true
+  },
+  "tracking_started_seconds": 17.359,
+  "first_checkpoint_seconds": 31.094,
+  "first_edit": {
+    "seconds": 36.156,
+    "files": [
+      "report/timezones.py"
+    ]
+  },
+  "checkpoint_versions": [
+    {
+      "seen_at_seconds": 31.094,
+      "text": "# Current Objective\n\nFix store B September daily-report mismatch without editing source data, expected results, configuration, or checker.\n\n# Completed\n\n- Inspected aggregation, business-day, timezone, ledger, refund, and money paths; checker currently reports 16 mismatches, all store B.\n\n# Decisions\n\n- Store B's -03:30 offset is parsed as -02:30 because parse_offset applies the sign to hours but always adds minutes. This shifts near-cutoff transactions by one hour; A (+01:00) and C (+05:45) remain correct. Apply the sign to total offset minutes.\n\n# Next Suggested Step\n\nPatch report/timezones.py, run the checker, and record the verification result.\n"
+    },
+    {
+      "seen_at_seconds": 123.594,
+      "text": "# Current Objective\n\nFix store B September daily-report mismatch without editing source data, expected results, configuration, or checker.\n\n# Completed\n\n- Inspected aggregation, business-day, timezone, ledger, refund, and money paths; checker currently reports 16 mismatches, all store B.\n- Patched parse_offset to sign the entire offset in minutes; this correctly interprets store B's -03:30 as UTC-03:30.\n- Verified python check_report.py passes: all 84 store-days match finance. git diff --check is clean.\n- Fixed negative fractional UTC offsets: -03:30 had been parsed as -02:30, resolving 14 of 16 mismatches.\n- Traced remaining Sep 17 and Sep 23 overages with debug_report. They are exact duplicate till exports: nine duplicate sales have distinct import IDs but the same (store, terminal, receipt, kind, UTC timestamp, amount, ref).\n- Corrected parse_offset so the sign applies to both hours and minutes, making store B's offset UTC-03:30 rather than UTC-02:30.\n- Deduplicated exact repeated till receipts during ledger loading while rejecting conflicting records for a shared till receipt.\n- Verified with python check_report.py: all 84 store-days match finance; git diff --check is clean.\n\n# Decisions\n\n- Store B's -03:30 offset is parsed as -02:30 because parse_offset applies the sign to hours but always adds minutes. This shifts near-cutoff transactions by one hour; A (+01:00) and C (+05:45) remain correct. Apply the sign to total offset minutes.\n- The mismatch was placement near the local 04:00 business-day cutoff caused by the prior UTC-02:30 interpretation for the negative fractional offset.\n- Treat a repeated identical till receipt as a duplicate import and retain its first occurrence; reject conflicting records that share a till receipt. This preserves unique sales while accommodating import-assigned IDs.\n- Import IDs are assigned during ingestion and are not source receipt identities. A store, terminal, and receipt tuple identifies the till transaction; matching duplicate copies must only be reported once.\n\n# Next Suggested Step\n\nTask complete.\n"
+    }
+  ],
+  "completion_seconds": 97.031,
+  "contamination": [],
+  "recorded_at": "2026-10-17T05:19:53.209609+00:00"
+}

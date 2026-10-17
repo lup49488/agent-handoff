@@ -572,6 +572,42 @@ different receipts. Wrong fixes tried against them:
 
 Progress is every genuine sale on its right business day, so a fix that
 drops genuine sales fails it as well.
+
+### Task E v2's window: it exists, and the skill leaves it empty
+
+Four uninterrupted sessions (`benchmarks/results/window-task-e-v2-2026-10-16/`):
+
+| | first checkpoint | first edit | progress | acceptance | exit |
+|---|---:|---:|---:|---:|---:|
+| W01 | 31.1 s | 36.2 s | 36.1 s | 97.0 s | 123.5 s |
+| W02 | 39.9 s | 42.5 s | 42.4 s | 63.9 s | 77.8 s |
+| W03 | 51.2 s | — | 55.0 s | 119.4 s | 164.6 s |
+| W04 | 29.9 s | 33.7 s | 33.6 s | 76.5 s | 94.5 s |
+
+All four passed acceptance with no contamination, and all four found both
+causes the way the fixture intends: the offset by reading, then — with the
+checker down from 16 mismatches to two — the re-imported receipts by
+comparing a day's rows with finance's figure. Every one keyed the
+deduplication on store, till and receipt.
+
+**There is now a window.** Between progress (34–55 s) and acceptance (64–119
+s) each session spent 21 to 64 seconds investigating the two remaining days,
+and what it learned — which receipts, which tills, that the copies are exact
+and why the key must include the till — was nowhere on disk until the fix
+was. A stop at 60 seconds would have landed inside that stretch in all four.
+
+**The skill leaves it empty.** Each session wrote its checkpoint before the
+first edit, as the revised skill asks, and then not again until the work was
+done. At any stop inside the window the package would have held the offset
+diagnosis, which the successor can see in the diff, and nothing about the
+duplicates. The rule asks for a checkpoint before the first edit; what
+matters here is a checkpoint whenever new findings come before an edit.
+
+W03 recorded no first edit: the edit landed between the snapshot and the
+progress check of the same probe round, progress passed, and the progress
+probe — the only place edits were looked for — was not called again. Edits
+are now looked for every round, each one is recorded with its time and
+files, and a failed look is recorded rather than swallowed.
 - Randomize which arm runs first. Run one process at a time. Pre-register the
   pair and write each trial record before the first model call.
 - Use only synthetic/public task data. Keep authentication material and raw
