@@ -356,6 +356,16 @@ is still below 1.0, so the interface may still change.
 
 ### Documented
 
+- Recovery-pilot pair D-r08, the first to run entirely as designed: both
+  sources stopped at 45 seconds with nothing on disk, and the Handoff recovery
+  received a substantive checkpoint. It recovered in 63.5 seconds against the
+  Baseline's 55.5, after re-reading every file the checkpoint said had been
+  read and re-deriving the same decision. To edit a file an agent has to read
+  it, and on task D the progress before the stop is just that reading, which
+  costs seconds to redo. Task D cannot show what a package is for; the next
+  pilot needs a task whose pre-interruption findings are expensive to repeat
+  and invisible on disk.
+
 - Recovery-pilot pair D-r07, the first at 45 seconds. Its Handoff source
   finished at 33.5 seconds, before the stop — expected in about one session in
   four — so the pair yields no comparison; it is recorded, not excluded or

@@ -7,8 +7,10 @@ was then measured directly in four uninterrupted sessions, and plans now stop
 the source session at 45 seconds, inside it (see
 [the measured window](#the-window-a-package-can-help-in)). The first pair under
 that rule, `D-r07`, yielded no comparison: its Handoff source finished at 33.5
-seconds, before the stop (see [D-r07](#d-r07-the-first-pair-at-45-seconds)).
-Before them, five source sessions under two earlier rules all finished first:
+seconds, before the stop. `D-r08` is the first pair to run entirely as
+designed — the Handoff recovery received a substantive checkpoint and no code
+— and it shows why this fixture cannot measure what the package is for (see
+[D-r08](#d-r08-the-design-working-and-what-it-shows)). Before them, five source sessions under two earlier rules all finished first:
 `D-r01` (v0.4 fixture) and `D-r02` (v0.5) under a five-minute wall-clock
 cutoff, and `D-baseline-r03` under a first-progress trigger. `D-handoff-r03`
 was withdrawn before it ran (see
@@ -95,8 +97,8 @@ minutes; only a future authorized pilot can establish that empirically.
 
 The runner now accepts a replicate identifier, derives the pair and trial IDs
 from it, preserves legacy `D-r01` plans, and refuses to register an identifier
-already present in another plan or trial artifact. `r01`–`r07` are used;
-register the next pair as `r08`.
+already present in another plan or trial artifact. `r01`–`r08` are used;
+register the next pair as `r09`.
 
 The scope audit's allowed files are derived from the fixture: every file its
 partial or reference variant changes, plus `HANDOFF.md`. A hand-written list
@@ -376,6 +378,77 @@ test run. And the Baseline recovery's 32.4 seconds is the fastest recovery yet
 observed, against 66.7 to 112.5 seconds in earlier pairs — further evidence
 that recovery time varies widely enough that only many pairs could show a
 difference the package makes.
+
+### D-r08: the design working, and what it shows
+
+Registered Baseline first (seed 20261020) under the 45-second rule with the
+revised skill. For the first time every part of the design ran as intended:
+both sources were stopped by the trigger (45.3 and 45.1 seconds) with nothing
+on disk, and the Handoff recovery received a substantive checkpoint:
+
+```text
+# Completed
+- Inspected CLI and writer modules: CSV currently hard-codes fields and writes
+  raw positional rows; JSON independently maps indices 0..2.
+# Decisions
+- Put the sole field-to-index projection in schema.py. CSV parses/validates
+  delimiter and column selection before cli.export_rows opens the destination;
+  JSON uses schema record mapping and ignores CSV-only options.
+# Next Suggested Step
+Patch schema.py, csv_export.py, json_export.py, and cli.py, then run unittest.
+```
+
+| | Baseline | Handoff |
+|---|---:|---:|
+| Recovery reaches full acceptance | 55.5 s | 63.5 s |
+| Recovery session exits | 94.4 s | 88.0 s |
+
+Both recoveries passed full acceptance within budget, in scope, with no
+contamination and every process tree ended.
+
+**The recovery redid the work the checkpoint described.** The checkpoint the
+Handoff recovery left at the end adds, as a step it completed, "Inspected
+schema.py, cli.py, csv_export.py, json_export.py, and public tests" — the
+inspection it had been told was done — and lists the same decision three
+times, re-derived. It did not take the plan on trust; it re-read every file
+and reached the plan again.
+
+That is not a failure of the agent. To change a file it has to have read the
+file; a checkpoint can tell it what it will find and what to do, but cannot
+put the code into its context. On this task the progress made in the first 45
+seconds *is* reading four short files and choosing an approach, and reading
+them again costs seconds. The most a package can save here is the deciding,
+and in D-r08 that was not enough to outweigh reading the package and keeping
+the handoff state current during recovery.
+
+### What eight pairs establish
+
+Four pairs reached a recovery in both arms under a fixed stop: Handoff minus
+Baseline was +40.1 s (D-r04), −27.1 s (D-r05), −18.7 s (D-r06) and +8.0 s
+(D-r08). Only in D-r08 did the package carry a substantive checkpoint. No
+direction can be read from this, and recovery time alone ranged from 32 to
+113 seconds.
+
+What the pilot has established is about the instrument, not the effect:
+
+- **The harness works.** Isolation, contamination scanning, a stop that lands
+  where it is meant to, a package rendered as the product renders it, and a
+  record that keeps what recovery received and left — all held in practice.
+- **The revised skill records what it should,** before the first edit,
+  substantively, in every session observed since the revision.
+- **This fixture cannot show what the package is for.** Its whole
+  pre-interruption progress is reading four short files and choosing an
+  approach, which a successor must redo to edit them and can redo in seconds.
+  The package can only save time where what was learned is expensive to learn
+  again and cannot be recovered by reading what is on disk: an investigation
+  that ran experiments, ruled out causes, or hit dead ends — "tried X; it fails
+  because Y" — or a codebase too large to re-explore cheaply.
+
+The next pilot needs a task built that way: one where reaching the
+pre-interruption state takes real investigation whose findings are not
+visible in the files, so that a fresh session without them would have to
+repeat it. Adding pairs on task D would cost quota without being able to
+answer the question.
 - Randomize which arm runs first. Run one process at a time. Pre-register the
   pair and write each trial record before the first model call.
 - Use only synthetic/public task data. Keep authentication material and raw
@@ -455,8 +528,8 @@ Example model-free registration (replace both placeholders with the exact
 configuration chosen for this run):
 
 ```powershell
-python -m benchmarks.recovery_pilot --register-plan .trials/task-d-v05-r08.json --replicate r08 --seed <seed> --model "<pinned model slug>" --cli-version "<exact codex --version output>"
-python -m benchmarks.recovery_pilot --plan .trials/task-d-v05-r08.json --status
+python -m benchmarks.recovery_pilot --register-plan .trials/task-d-v05-r09.json --replicate r09 --seed <seed> --model "<pinned model slug>" --cli-version "<exact codex --version output>"
+python -m benchmarks.recovery_pilot --plan .trials/task-d-v05-r09.json --status
 ```
 
 Starting the next arm requires a separate, explicit `--launch`; do not include
