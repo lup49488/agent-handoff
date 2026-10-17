@@ -5,8 +5,10 @@ and `D-r06` with a revised skill — and showed that 30 seconds comes before the
 skill has anything worth handing over. The window in which a package can help
 was then measured directly in four uninterrupted sessions, and plans now stop
 the source session at 45 seconds, inside it (see
-[the measured window](#the-window-a-package-can-help-in)). No pair has run
-under that rule yet. Before them, five source sessions under two earlier rules all finished first:
+[the measured window](#the-window-a-package-can-help-in)). The first pair under
+that rule, `D-r07`, yielded no comparison: its Handoff source finished at 33.5
+seconds, before the stop (see [D-r07](#d-r07-the-first-pair-at-45-seconds)).
+Before them, five source sessions under two earlier rules all finished first:
 `D-r01` (v0.4 fixture) and `D-r02` (v0.5) under a five-minute wall-clock
 cutoff, and `D-baseline-r03` under a first-progress trigger. `D-handoff-r03`
 was withdrawn before it ran (see
@@ -93,8 +95,8 @@ minutes; only a future authorized pilot can establish that empirically.
 
 The runner now accepts a replicate identifier, derives the pair and trial IDs
 from it, preserves legacy `D-r01` plans, and refuses to register an identifier
-already present in another plan or trial artifact. `r01`–`r06` are used;
-register the next pair as `r07`.
+already present in another plan or trial artifact. `r01`–`r07` are used;
+register the next pair as `r08`.
 
 The scope audit's allowed files are derived from the fixture: every file its
 partial or reference variant changes, plus `HANDOFF.md`. A hand-written list
@@ -350,6 +352,30 @@ seconds; schema-3 plans (D-r04 to D-r06) still load as 30.
 At 45 seconds the Handoff arm should, most of the time, hand over a checkpoint
 like the ones above while neither arm has yet changed a file. That is the
 comparison the pilot exists to make, and the first one it has been able to.
+
+### D-r07: the first pair at 45 seconds
+
+Registered under the 45-second rule with Handoff first (seed 20261019),
+alternating with D-r04 to D-r06, and the revised skill (`5df78724…`).
+
+| | Handoff | Baseline |
+|---|---|---|
+| Source | finished the task at 33.5 s, before the stop | stopped at 45.5 s, nothing on disk |
+| Recovery | not run: nothing to recover | reached full acceptance at 32.4 s |
+
+Both records validate, with no contamination and every process tree ended.
+The Handoff source finished first, as W01 had in the window measurement; at
+45 seconds this was expected in about one session in four. The pair is
+recorded as it ran and yields no comparison — the Handoff arm has no recovery
+to set against the Baseline's. It is not excluded and was not re-run.
+
+Two things it does show. The checkpoint the Handoff source left at completion
+is again substantive: the four files read and what CSV and JSON currently do,
+the decision to centralise the field mapping in `schema.py` and why, and the
+test run. And the Baseline recovery's 32.4 seconds is the fastest recovery yet
+observed, against 66.7 to 112.5 seconds in earlier pairs — further evidence
+that recovery time varies widely enough that only many pairs could show a
+difference the package makes.
 - Randomize which arm runs first. Run one process at a time. Pre-register the
   pair and write each trial record before the first model call.
 - Use only synthetic/public task data. Keep authentication material and raw
@@ -429,8 +455,8 @@ Example model-free registration (replace both placeholders with the exact
 configuration chosen for this run):
 
 ```powershell
-python -m benchmarks.recovery_pilot --register-plan .trials/task-d-v05-r07.json --replicate r07 --seed <seed> --model "<pinned model slug>" --cli-version "<exact codex --version output>"
-python -m benchmarks.recovery_pilot --plan .trials/task-d-v05-r07.json --status
+python -m benchmarks.recovery_pilot --register-plan .trials/task-d-v05-r08.json --replicate r08 --seed <seed> --model "<pinned model slug>" --cli-version "<exact codex --version output>"
+python -m benchmarks.recovery_pilot --plan .trials/task-d-v05-r08.json --status
 ```
 
 Starting the next arm requires a separate, explicit `--launch`; do not include

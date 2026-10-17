@@ -356,6 +356,12 @@ is still below 1.0, so the interface may still change.
 
 ### Documented
 
+- Recovery-pilot pair D-r07, the first at 45 seconds. Its Handoff source
+  finished at 33.5 seconds, before the stop — expected in about one session in
+  four — so the pair yields no comparison; it is recorded, not excluded or
+  re-run. Its Baseline recovery, at 32.4 seconds, was the fastest yet, against
+  66.7 to 112.5 in earlier pairs.
+
 - The window in which a handoff package can help, measured: four
   uninterrupted Handoff sessions with the revised skill wrote a substantive
   first checkpoint, before any edit, at 20.7 to 38.1 seconds and completed at
