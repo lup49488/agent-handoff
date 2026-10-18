@@ -13,6 +13,15 @@ is still below 1.0, so the interface may still change.
 
 ### Fixed
 
+- Taking the lock could fail with "Permission denied" when its holder
+  released it at the wrong moment. On Windows an exclusive create that
+  collides with an existing lock can be reported as access denied; the lock
+  then looked for the file to tell contention from a real ACL error, and if
+  the holder had released it in between, raised the collision as an ACL
+  error instead of taking the free lock. It now tries the open once more
+  first. Found by the busy-lock test failing intermittently on Windows CI
+  (Python 3.9), in three of six runs.
+
 - A recovery could be recorded as failing on one bad final check.
   E-baseline-r02 passed acceptance in its session, confirmed it with the
   public check, and exited; the harness's single final check then failed,

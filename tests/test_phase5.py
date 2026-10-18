@@ -468,6 +468,34 @@ def test_lock_propagates_permission_error_when_lock_path_is_absent(project, monk
         lock_mod.Lock(project.lock_file, "denied")._write()
 
 
+def test_a_lock_released_just_after_an_access_denied_open_is_taken(project, monkeypatch):
+    """The holder can release between the denied open and the look for its file.
+
+    Windows CI hit this in the busy-lock test above: the releasing thread got
+    there first, the lock was gone, and the collision was raised as an ACL error.
+    """
+    import errno
+
+    holder = lock_mod.Lock(project.lock_file, "brief-writer")
+    holder.acquire()
+    original_open = lock_mod.os.open
+    denied = []
+
+    def collide_then_release(path, flags, *args, **kwargs):
+        if str(path) == str(project.lock_file) and flags & os.O_EXCL and not denied:
+            denied.append(path)
+            holder.release()  # released before _write looks for the file
+            raise PermissionError(errno.EACCES, "Permission denied", str(path))
+        return original_open(path, flags, *args, **kwargs)
+
+    monkeypatch.setattr(lock_mod.os, "open", collide_then_release)
+    taker = lock_mod.Lock(project.lock_file, "next-writer")
+
+    assert taker._write() is True
+    assert denied
+    assert lock_mod.read(project.lock_file).command == "next-writer"
+
+
 def test_a_lock_held_for_a_long_time_is_still_reported(project, capsys):
     """Waiting must not turn into hanging on a session-length lock."""
     import agent_handoff.cli as cli_mod

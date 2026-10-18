@@ -127,17 +127,22 @@ class Lock:
     def _write(self) -> bool:
         """Create the lock file, failing if someone got there first."""
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        try:
-            fd = os.open(str(self.path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-        except FileExistsError:
-            return False
-        except PermissionError:
-            # Windows may report an exclusive-create collision as access
-            # denied. Only treat it as contention when the lock is present;
-            # genuine directory/ACL errors must still reach the caller.
-            if self.path.exists():
+        for attempt in (1, 2):
+            try:
+                fd = os.open(str(self.path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+                break
+            except FileExistsError:
                 return False
-            raise
+            except PermissionError:
+                # Windows may report an exclusive-create collision as access
+                # denied. Only treat it as contention when the lock is present;
+                # genuine directory/ACL errors must still reach the caller.
+                if self.path.exists():
+                    return False
+                # The holder may have released it between the failed open and
+                # that look: try once more before calling it an ACL error.
+                if attempt == 2:
+                    raise
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
             handle.write(json.dumps(self.info.to_dict(), ensure_ascii=False) + "\n")
             handle.flush()
