@@ -926,6 +926,75 @@ unexplained final check, cannot carry it. Two in three packages were thin,
 against one in four in the window measurements: in both thin pairs the
 Handoff source reached progress late (61.0 and 65.8 seconds), leaving its
 next checkpoint — after a ten-second check — too close to the stop at 100.
+
+### E-r04 and E-r05: a stop at 120 seconds
+
+Schema 6 moves the stop to 120 seconds, so that a source fixing the offset
+late still has time to checkpoint after the next check. Seeds 20261024 and
+20261025; both again drew Handoff first, as every task E pair has — the
+seeds were fixed in sequence before their orders were known, and 20261021
+to 20261026 happen all to shuffle Handoff first. Order is therefore
+confounded with arm in all five pairs.
+
+| | E-r04 Handoff | E-r04 Baseline | E-r05 Handoff | E-r05 Baseline |
+|---|---:|---:|---:|---:|
+| Source: progress | 71.7 s | 51.8 s | 50.7 s | 17.5 s |
+| Source: stopped | 121.0 s | 120.3 s | 120.4 s | 121.1 s |
+| Package at the stop | narrowing | — | plan only | — |
+| Recovery reaches full acceptance | 162.7 s | 139.0 s | 165.8 s | 126.9 s |
+| Recovery session exits | 205.8 s | 165.1 s | 228.0 s | 169.4 s |
+
+All four stopped with the offset fixed and the duplicates unfound; every
+recovery passed acceptance on its first final check, in scope,
+uncontaminated, with every process tree ended.
+
+E-r04's package held the narrowing. E-r05's held only the pre-edit plan,
+although its source fixed the offset at 50.7 seconds and ran for another 70
+without checkpointing: the late fix was not the only way to a thin package.
+
+### What five pairs on task E v3 show
+
+| Pair | Stop | Package at the stop | Handoff − Baseline |
+|---|---:|---|---:|
+| E-r01 | 100 s | plan only | +118.5 s |
+| E-r02 | 100 s | plan only | +46.5 s* |
+| E-r03 | 100 s | narrowing | −8.9 s |
+| E-r04 | 120 s | narrowing | +23.7 s |
+| E-r05 | 120 s | plan only | +38.9 s |
+
+\* Baseline's time from the session; its final check is discussed above.
+
+**Handoff was slower in four of five pairs**, by 47 to 119 seconds when the
+package held only the plan and by −9 and +24 when it held the narrowing.
+
+**The package did not spare the recoveries the expensive part.** From the
+Codex session logs, the number of tool calls in each recovery that read the
+ledger — `check_report.py`, `debug_report.py`, or a script of its own —
+was:
+
+| | E-r01 | E-r02 | E-r03 | E-r04 | E-r05 |
+|---|---:|---:|---:|---:|---:|
+| Handoff: ledger-reading calls | 14 | 7 | 6 | 9 | 10 |
+| Baseline: ledger-reading calls | 8 | 8 | 8 | 7 | 7 |
+| Handoff: `handoff` calls (wall time) | 7 (31.0 s) | 5 (7.8 s) | 5 (7.4 s) | 5 (9.3 s) | 4 (6.4 s) |
+| Handoff: all tool calls | 21 | 12 | 11 | 14 | 15 |
+| Baseline: all tool calls | 9 | 8 | 8 | 9 | 9 |
+
+A recovery handed the narrowing still ran the checker before going on — as
+the resume instructions tell it to, "verify the current repository state
+before making further changes" — and so paid the ten seconds the narrowing
+was meant to save. On top of that it spent four to seven calls on the
+package itself: reading and verifying it, and keeping the checkpoint
+current, as the skill asks. Each call costs the command's time and a model
+turn.
+
+So on this task, with this skill and this agent, the package costs more
+than it saves. What it carries at a stop is real but small — at best the
+narrowing, which the first verification re-derives — and the checkpointing
+discipline that produces it is paid for again in recovery. Two things would
+have to change for it to pay: the package would have to carry something
+verification does not re-derive in passing, and taking it over would have
+to cost fewer calls than the few it saves.
 - Randomize which arm runs first. Run one process at a time. Pre-register the
   pair and write each trial record before the first model call.
 - Use only synthetic/public task data. Keep authentication material and raw

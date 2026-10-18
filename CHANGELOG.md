@@ -222,6 +222,10 @@ is still below 1.0, so the interface may still change.
   Handoff sources that fixed the offset late (E-r01, E-r02) were stopped
   before their next checkpoint could follow a ten-second check; schema-5
   plans still read back as 100.
+- Pilot pairs E-r04 and E-r05, at 120 seconds. Over five task E v3 pairs
+  Handoff recovered slower in four; recoveries handed the narrowing still
+  re-ran the checker to verify, and spent four to seven calls on the package
+  itself. On this task the package costs more than it saves.
 
 - pytest always prints the names of failing tests (`-rf`). One intermittent
   failure in a full local run went unidentified because a quiet run reports
