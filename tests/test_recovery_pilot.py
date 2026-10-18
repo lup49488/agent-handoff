@@ -102,6 +102,39 @@ class RecoveryPilotBoundaryTests(unittest.TestCase):
         self.assertNotIn("stdout", result["recovery"])
         self.assertTrue(result["recovery"]["primary_success"])
 
+    def test_a_final_check_that_fails_once_is_repeated_and_recorded(self):
+        """E-baseline-r02's final check failed on a state that passed before and after."""
+        invoke = Mock(side_effect=[
+            {"exit_code": -9, "timed_out": False},
+            {"exit_code": 0, "timed_out": False},
+        ])
+        completion = iter((False, False, True, True))
+        result = pilot.execute_arm(
+            self.root, "request", invoke, progress_check=lambda _: True,
+            completion_check=lambda _: next(completion),
+            completion_detail=lambda _: {"passed": False, "returncode": 1, "output_tail": "PermissionError"},
+            package_check=lambda _: {"present": False, "valid": False, "errors": ["missing"]},
+        )
+        recovery = result["recovery"]
+        self.assertEqual(recovery["final_checks"], [False, True, True])
+        self.assertEqual(recovery["final_check_failure"]["output_tail"], "PermissionError")
+        self.assertTrue(recovery["acceptance_passed"])
+
+    def test_a_final_check_that_always_fails_is_a_failure(self):
+        invoke = Mock(side_effect=[
+            {"exit_code": -9, "timed_out": False},
+            {"exit_code": 0, "timed_out": False},
+        ])
+        result = pilot.execute_arm(
+            self.root, "request", invoke, progress_check=lambda _: True,
+            completion_check=lambda _: False,
+            completion_detail=lambda _: {"passed": False, "returncode": 1, "output_tail": "mismatch"},
+            package_check=lambda _: {"present": False, "valid": False, "errors": ["missing"]},
+        )
+        self.assertEqual(result["recovery"]["final_checks"], [False, False, False])
+        self.assertFalse(result["recovery"]["acceptance_passed"])
+        self.assertFalse(result["recovery"]["primary_success"])
+
     def test_recovery_preflight_failure_preserves_source_and_boundary_evidence(self):
         calls = []
 

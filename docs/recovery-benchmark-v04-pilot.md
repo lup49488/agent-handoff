@@ -875,6 +875,57 @@ What E-r01 tests is therefore not what the design is for: with the package
 as thin as it was, any difference is overhead and noise. The pairs that can
 show an effect are those whose source recorded the narrowing before the
 stop, three in four by W05–W08's rate.
+
+### E-r02 and E-r03
+
+Registered like E-r01 (seeds 20261022 and 20261023); both drew Handoff
+first.
+
+| | E-r02 Handoff | E-r02 Baseline | E-r03 Handoff | E-r03 Baseline |
+|---|---:|---:|---:|---:|
+| Source: progress | 65.8 s | 45.8 s | 48.5 s | 55.9 s |
+| Source: stopped | 101.1 s | 100.3 s | 100.7 s | 100.2 s |
+| Package at the stop | plan only | — | narrowing | — |
+| Recovery reaches full acceptance | 131.2 s | 84.7 s* | 106.3 s | 115.2 s |
+| Recovery session exits | 166.1 s | 103.1 s | 147.1 s | 134.1 s |
+
+All four sources were stopped with the offset fixed and the duplicates not
+found; all recoveries ran in scope, uncontaminated, with every process tree
+ended.
+
+**E-r02's package was again only the plan:** written before the first edit,
+nothing after it. **E-r03's held the narrowing** — the two days and their
+amounts, the offset ruled out for them — and a next step that already named
+the likely cause: "compare unusual records, likely duplicate handling."
+
+\* **E-baseline-r02 is recorded as failing acceptance, and should not
+have been.** Its recovery reached acceptance in the session at 84.7 seconds,
+ran `check_report.py` itself and read "all 819 store-days match finance"
+(its Codex session log), made no further change, and exited at 103.1. The
+harness's final acceptance check after the exit then failed. The saved final
+patch, applied to a fresh copy, passes progress and acceptance; 120 runs of
+the acceptance evaluator on the reference all passed. What the failing check
+printed was not kept, so its cause is unknown. The record is left as it is;
+the harness now repeats a failing final check twice more, counts the state
+as accepted if a repeat passes, and keeps every result and the failing
+evaluator's output (`final_checks`, `final_check_failure`).
+
+Three pairs, Handoff minus Baseline in time to acceptance:
+
+| Pair | Package at the stop | Handoff − Baseline |
+|---|---|---:|
+| E-r01 | plan only | +118.5 s |
+| E-r02 | plan only | +46.5 s (Baseline's time from the session) |
+| E-r03 | narrowing | −8.9 s |
+
+The two pairs whose package held nothing beyond the diff are the two in
+which Handoff was slower, by a lot; the one whose package held the
+narrowing is the one in which it was faster, by a little. That is the
+direction the design predicts, and three pairs, one of them with an
+unexplained final check, cannot carry it. Two in three packages were thin,
+against one in four in the window measurements: in both thin pairs the
+Handoff source reached progress late (61.0 and 65.8 seconds), leaving its
+next checkpoint — after a ten-second check — too close to the stop at 100.
 - Randomize which arm runs first. Run one process at a time. Pre-register the
   pair and write each trial record before the first model call.
 - Use only synthetic/public task data. Keep authentication material and raw

@@ -536,12 +536,24 @@ def _calibration_summary(calibration: Dict[str, object]) -> str:
 
 
 def _run_check(project: Path, evaluator: str) -> bool:
+    return bool(_check_output(project, evaluator)["passed"])
+
+
+def _check_output(project: Path, evaluator: str) -> Dict[str, object]:
     result = _run(
         project, "-c",
         "import runpy,sys; runpy.run_path(sys.argv[1], run_name='__main__')",
         str(FIXTURE / (evaluator + ".py")),
     )
-    return result.returncode == 0
+    tail = (result.stdout + result.stderr).strip().splitlines()[-12:]
+    return {"passed": result.returncode == 0, "returncode": result.returncode, "output_tail": "\n".join(tail)}
+
+
+#: How often the final acceptance check is repeated when it fails. A correct
+#: state passes the evaluator every time; E-baseline-r02's final check failed
+#: once on a state that had passed in the session and passes when re-run, and
+#: what the evaluator printed was not kept.
+FINAL_CHECK_RETRIES = 2
 
 
 def scope_violations(project: Path, baseline_head: str) -> List[str]:
@@ -600,6 +612,7 @@ def execute_arm(
     recovery_budget: int = RECOVERY_SECONDS,
     progress_check: Callable[[Path], bool] = lambda p: _run_check(p, "progress"),
     completion_check: Callable[[Path], bool] = lambda p: _run_check(p, "acceptance"),
+    completion_detail: Callable[[Path], Dict[str, object]] = lambda p: _check_output(p, "acceptance"),
     package_check: Callable[[Path], Dict[str, object]] = checkpoint_evidence,
     baseline_head: Optional[str] = None,
     pack: Optional[Callable[[Path], Dict[str, object]]] = None,
@@ -664,7 +677,14 @@ def execute_arm(
         result["recovery_error"] = True
         result["recovery_skipped"] = False
         return result
-    final_complete = completion_check(project)
+    final_checks = [completion_check(project)]
+    failure_detail = None
+    if not final_checks[0]:
+        failure_detail = completion_detail(project)
+        final_checks += [completion_check(project) for _ in range(FINAL_CHECK_RETRIES)]
+    # Passing on a re-check means the first failure was the check's, not the
+    # state's; the attempts and what the evaluator printed are recorded.
+    final_complete = any(final_checks)
     if progress:
         recovery["first_verified_progress_seconds"] = 0.0
         recovery["progress_present_at_recovery_start"] = True
@@ -682,6 +702,8 @@ def execute_arm(
     result["recovery"].update({
         "package_content_after": package_reader(project),
         "acceptance_passed": final_complete,
+        "final_checks": final_checks,
+        "final_check_failure": failure_detail,
         "scope_violations": violations,
         "final_diff": diff,
         "within_budget": not bool(recovery.get("timed_out")),

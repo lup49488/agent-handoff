@@ -13,6 +13,13 @@ is still below 1.0, so the interface may still change.
 
 ### Fixed
 
+- A recovery could be recorded as failing on one bad final check.
+  E-baseline-r02 passed acceptance in its session, confirmed it with the
+  public check, and exited; the harness's single final check then failed,
+  and what the evaluator printed was not kept. The saved patch passes when
+  re-evaluated. A failing final check is now repeated twice more, and every
+  result and the failing evaluator's output are recorded.
+
 - A failed calibration said only that it had failed. One task E v3 window
   measurement stopped on one that did not recur; the error now reports each
   variant's results and the end of its public check's output.
@@ -208,6 +215,9 @@ is still below 1.0, so the interface may still change.
   seconds with the offset fixed; the Handoff package held only what the
   diff showed, and its recovery reached acceptance in 251.8 seconds against
   the Baseline's 133.3.
+- Pilot pairs E-r02 and E-r03. E-r02's package was again only the plan, and
+  Handoff was slower (131.2 seconds against 84.7); E-r03's held the
+  narrowing, and Handoff was faster (106.3 against 115.2).
 
 - pytest always prints the names of failing tests (`-rf`). One intermittent
   failure in a full local run went unidentified because a quiet run reports
