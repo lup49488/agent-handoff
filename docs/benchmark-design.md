@@ -4,6 +4,9 @@ This document defines how to test whether `agent-handoff` reduces the cost of
 recovering an interrupted coding task. It is a measurement protocol, not a
 claim that a benefit has already been observed.
 
+The end-to-end recovery pilot run against it is summarized in
+[Recovery Pilot: Findings](recovery-pilot-findings.md).
+
 ## Decision
 
 Decide whether the handoff package is good enough to recommend as a recovery

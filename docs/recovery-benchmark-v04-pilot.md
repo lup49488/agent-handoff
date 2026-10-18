@@ -1,22 +1,13 @@
 # Recovery Benchmark v0.4 Pilot Proposal
 
-Status: three pairs ran under a fixed 30-second stop — `D-r04`, `D-r05`,
-and `D-r06` with a revised skill — and showed that 30 seconds comes before the
-skill has anything worth handing over. The window in which a package can help
-was then measured directly in four uninterrupted sessions, and plans now stop
-the source session at 45 seconds, inside it (see
-[the measured window](#the-window-a-package-can-help-in)). The first pair under
-that rule, `D-r07`, yielded no comparison: its Handoff source finished at 33.5
-seconds, before the stop. `D-r08` is the first pair to run entirely as
-designed — the Handoff recovery received a substantive checkpoint and no code
-— and it shows why this fixture cannot measure what the package is for (see
-[D-r08](#d-r08-the-design-working-and-what-it-shows)). Before them, five source sessions under two earlier rules all finished first:
-`D-r01` (v0.4 fixture) and `D-r02` (v0.5) under a five-minute wall-clock
-cutoff, and `D-baseline-r03` under a first-progress trigger. `D-handoff-r03`
-was withdrawn before it ran (see
-[the observation](#what-the-first-progress-trigger-showed)). Plans now stop the
-source session at a fixed 30 seconds and render the Handoff arm's package at
-the stop.
+Status: concluded. Eight pairs on task D and five on task E v3, with 32
+window measurements across tasks D, E, E v2 and E v3, found that on these tasks
+the package costs a recovery more than it saves. The findings, and what would
+have to change for a package to pay, are summarized in
+[Recovery Pilot: Findings](recovery-pilot-findings.md). What follows is the
+running record: the proposal as first written, then every pair, window
+measurement and change to the harness, fixtures and skill, in the order they
+happened.
 
 ## Why a new pilot
 

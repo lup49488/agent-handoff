@@ -441,6 +441,13 @@ is still below 1.0, so the interface may still change.
 
 ### Documented
 
+- The recovery pilot's findings, in `docs/recovery-pilot-findings.md`: on
+  these tasks a package costs a recovery more than it saves, because what it
+  carries at a stop is re-derived by the successor's first verification and
+  taking it over costs four to seven tool calls; agents record the decisive
+  finding only as they act on it; and on slow checks they recorded results
+  they had not seen, which the skill now forbids.
+
 - Recovery-pilot pair D-r08, the first to run entirely as designed: both
   sources stopped at 45 seconds with nothing on disk, and the Handoff recovery
   received a substantive checkpoint. It recovered in 63.5 seconds against the
