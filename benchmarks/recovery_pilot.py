@@ -96,7 +96,7 @@ THIRTY_SECOND_POLICY = {
 #: before completion, so the margin survives ordinary variation.
 FORTY_FIVE_SECOND_POLICY = dict(THIRTY_SECOND_POLICY, stop_after_seconds=45)
 
-#: The interruption rule frozen into every schema-5 plan: 100 seconds, chosen
+#: The interruption rule frozen into every schema-5 plan (E-r01 to E-r03): 100 seconds, chosen
 #: for task E v3.
 #:
 #: Task D's 45 seconds came from task D's window. On task E v3 eight
@@ -107,7 +107,19 @@ FORTY_FIVE_SECOND_POLICY = dict(THIRTY_SECOND_POLICY, stop_after_seconds=45)
 #: skill that records results only from their output (W05-W08), three of four
 #: packages then hold the narrowing -- the two days left and by how much --
 #: and the fourth only what the diff shows.
-INTERRUPTION_POLICY = dict(THIRTY_SECOND_POLICY, stop_after_seconds=100)
+HUNDRED_SECOND_POLICY = dict(THIRTY_SECOND_POLICY, stop_after_seconds=100)
+
+#: The interruption rule frozen into every schema-6 plan: 120 seconds.
+#:
+#: Under 100 seconds two of the first three pairs (E-r01, E-r02) stopped a
+#: Handoff source whose package held only its pre-edit plan. Both had fixed
+#: the offset late, at 61.0 and 65.8 seconds, and a session records the
+#: narrowing only after the ten-second checker has run again, 22 to 24
+#: seconds after the fix in W06-W08: too close to 100. At 120 that margin
+#: holds for a fix as late as W01-W08's latest, 67.7 seconds, while the
+#: earliest the duplicates were recorded in those eight sessions is 127.3
+#: (W07), so a stop still lands before them -- by 7 seconds at the least.
+INTERRUPTION_POLICY = dict(THIRTY_SECOND_POLICY, stop_after_seconds=120)
 
 #: Schema-2 plans (D-r03) were frozen under the first-progress rule, which the
 #: observation above retired. Kept so those plans still load as what they are.
@@ -129,7 +141,8 @@ LEGACY_INTERRUPTION_POLICY = {
 
 #: The policy each plan schema must carry exactly.
 POLICY_FOR_SCHEMA = {
-    2: FIRST_PROGRESS_POLICY, 3: THIRTY_SECOND_POLICY, 4: FORTY_FIVE_SECOND_POLICY, 5: INTERRUPTION_POLICY,
+    2: FIRST_PROGRESS_POLICY, 3: THIRTY_SECOND_POLICY, 4: FORTY_FIVE_SECOND_POLICY,
+    5: HUNDRED_SECOND_POLICY, 6: INTERRUPTION_POLICY,
 }
 
 
@@ -777,7 +790,7 @@ def build_plan(
     arms = list(ARMS)
     random.Random("task-d-v05|%d" % seed).shuffle(arms)
     data = {
-        "schema_version": 5,
+        "schema_version": 6,
         "fixture": fixture,
         "interruption": dict(INTERRUPTION_POLICY),
         "pair_id": "%s-%s" % (_task_letter(), replicate),
@@ -868,7 +881,7 @@ def _read_plan(path: Path) -> Dict[str, object]:
     if data.get("schema_version") == 1 and "interruption" in data:
         raise ValueError("a schema-1 pilot plan cannot carry an interruption policy")
     if (
-        data.get("schema_version") not in (1, 2, 3, 4, 5)
+        data.get("schema_version") not in (1, 2, 3, 4, 5, 6)
         or not isinstance(replicate, str)
         or re.fullmatch(r"r[0-9]{2,}", replicate) is None
         or data.get("pair_id") != "%s-%s" % (_task_letter(), replicate)

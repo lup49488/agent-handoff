@@ -218,6 +218,10 @@ is still below 1.0, so the interface may still change.
 - Pilot pairs E-r02 and E-r03. E-r02's package was again only the plan, and
   Handoff was slower (131.2 seconds against 84.7); E-r03's held the
   narrowing, and Handoff was faster (106.3 against 115.2).
+- Schema-6 pilot plans stop the source at 120 seconds. Under 100, both
+  Handoff sources that fixed the offset late (E-r01, E-r02) were stopped
+  before their next checkpoint could follow a ten-second check; schema-5
+  plans still read back as 100.
 
 - pytest always prints the names of failing tests (`-rf`). One intermittent
   failure in a full local run went unidentified because a quiet run reports
