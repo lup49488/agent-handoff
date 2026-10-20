@@ -11,7 +11,7 @@ Use the installed `handoff` CLI as the source of durable task state. It records 
 
 - Confirm the CLI is available with `handoff --version`. If it is not on `PATH`, invoke it from a source checkout with `python -m agent_handoff` after setting `PYTHONPATH` to that checkout's `src` directory. On PowerShell, use `$env:PYTHONPATH = "<checkout>\src"`. If neither works, say so; do not invent a replacement state format.
 - For substantive implementation, debugging, testing, or code-review work in a Git repository, start tracking before the first material change. If no package is active, run `handoff init` with a concise, faithful rendering of the user's task. Do this without asking separately unless the user says not to track the task or the work is read-only.
-- If a handoff package exists, run `handoff status` and `handoff verify`, then read `HANDOFF.md` and the current Git status/diff. The live diff is authoritative when it disagrees with a checkpoint.
+- If a handoff package exists, run `handoff resume`. It checks the package for damage and prints it against the code as it is now—checkpoint, repository state, live diff, and whether the latest test result still holds—so you need not run `handoff status`, `handoff verify`, or read `HANDOFF.md` and the diff separately. The live diff is authoritative when it disagrees with a checkpoint.
 - Do not initialize for brief answers, translation, planning without repository work, or purely read-only questions.
 
 ## Record progress

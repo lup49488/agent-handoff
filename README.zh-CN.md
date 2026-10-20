@@ -75,6 +75,7 @@ handoff switch --to claude --reason quota_exhausted
 
 | 命令 | 用途 |
 | --- | --- |
+| `handoff resume` | 接手：一步完成交接包校验，并按当前代码输出交接内容（只读）。 |
 | `handoff status` | 查看任务、检查点、测试结果与最近事件。 |
 | `handoff checkpoint --next "..."` | 在里程碑记录进度、决策、问题与下一步。 |
 | `handoff tests "pytest -q" --exit-code 0` | 将最新测试结果写入交接包，并记下它是在哪份代码上跑的，交接包据此标明结果是否仍然有效。 |

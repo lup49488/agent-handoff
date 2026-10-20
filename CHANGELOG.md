@@ -13,6 +13,16 @@ is still below 1.0, so the interface may still change.
 
 ### Added
 
+- `handoff resume`: take over in one read-only step. It runs the integrity
+  check and prints the package rendered again against the live repository —
+  checkpoint, repository state, diff, and whether the latest test result
+  still holds — writing nothing and never waiting for the write lock. It
+  exits 1 when the package is damaged, and prints it from the state anyway.
+  The resume instructions and the skill now start a takeover with it. In the
+  recovery pilot a Handoff recovery spent four to seven tool calls on the
+  package before doing any work — status, verify, `HANDOFF.md`, the diff —
+  each a command and a model turn.
+
 - A recorded test result says whether it still describes the code.
   `handoff tests` records the tree the result was taken on — HEAD and a
   digest of every uncommitted change, tracked or untracked, leaving out the

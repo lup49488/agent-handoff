@@ -113,7 +113,7 @@ def _lock(path: Path, command: str, wait: float = LOCK_WAIT_SECONDS):
 
 #: Commands that only read. They must never block or be blocked.
 #: `health` is per-user state, so it neither takes nor waits for a project lock.
-READ_ONLY = {"status", "verify", "agents", "protocol", "health", "sessions"}
+READ_ONLY = {"status", "verify", "resume", "agents", "protocol", "health", "sessions"}
 
 
 def _wants_lock(args: argparse.Namespace) -> bool:
@@ -671,6 +671,32 @@ def cmd_verify(args: argparse.Namespace) -> int:
     return 1 if integrity_mod.errors(findings) else 0
 
 
+def cmd_resume(args: argparse.Namespace) -> int:
+    """Everything a successor needs to take over, in one read-only step.
+
+    In the recovery pilot a Handoff recovery spent four to seven tool calls
+    on the package before doing any work -- status, verify, reading
+    HANDOFF.md, the diff -- each a command and a model turn. This is all of
+    them: the integrity check, then the package rendered again against the
+    live repository, so the diff and the test result's freshness are as of
+    now rather than as of the last pack. Nothing is written.
+    """
+    store = _open_store()
+    findings = integrity_mod.inspect(store)
+    _echo("# Taking over")
+    _echo("")
+    if findings:
+        _echo("handoff verify found:")
+        for finding in findings:
+            _echo("  " + finding.render())
+    else:
+        _echo("handoff verify: ok -- the package is intact")
+    _echo("")
+    live = gitinfo.collect(store.root)
+    _echo(handoff_pkg.render(store, reason="resumed", git=live).replace("# HANDOFF\n", "", 1).strip())
+    return 1 if integrity_mod.errors(findings) else 0
+
+
 def cmd_recover(args: argparse.Namespace) -> int:
     store = _open_store()
     actions = integrity_mod.recover(store, break_lock=args.break_lock, dry_run=args.dry_run)
@@ -844,6 +870,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_verify = sub.add_parser("verify", help="check the handoff state for damage or drift")
     p_verify.set_defaults(func=cmd_verify, needs_lock=False)
+
+    p_resume = sub.add_parser(
+        "resume", help="take over: verify the package and print it against the code as it is now")
+    p_resume.set_defaults(func=cmd_resume, needs_lock=False)
 
     p_recover = sub.add_parser("recover", help="clean up what an interrupted run left behind")
     p_recover.add_argument(

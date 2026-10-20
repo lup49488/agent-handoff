@@ -87,6 +87,7 @@ what would happen and changes nothing.
 
 | Command | What it does |
 | --- | --- |
+| `handoff resume` | take over: verify the package and print it against the code as it is now, in one read-only step |
 | `handoff status` | task, checkpoint, test result and recent events |
 | `handoff checkpoint --next "..."` | record progress, decisions, the current problem and the next step |
 | `handoff tests "pytest -q" --exit-code 0` | put the latest test result in the package, with the code it ran on, so the package can say whether it still holds |

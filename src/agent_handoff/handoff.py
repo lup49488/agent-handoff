@@ -13,7 +13,7 @@ from agent_handoff import checkpoint as checkpoint_mod
 from agent_handoff import gitinfo
 from agent_handoff import testresult
 from agent_handoff.events import last_failure
-from agent_handoff.models import Task, now
+from agent_handoff.models import GitState, Task, now
 from agent_handoff.store import Store, atomic_write
 
 DIFF_BUDGET_CHARS = 20000
@@ -25,12 +25,10 @@ RESUME_INSTRUCTION = """You are continuing an unfinished coding task from anothe
 
 Do not restart the task from scratch.
 
-First inspect:
-1. HANDOFF.md
-2. current git diff
-3. modified files
-4. latest test results -- each says whether it was taken on the code as it
-   is now
+First run `handoff resume`. In one step it checks this package for damage
+and prints it again against the code as it is now: the checkpoint, the
+repository state and live diff, and whether the latest test result was taken
+on that code. Without the CLI, read this file and `git diff HEAD` instead.
 
 Verify the current repository state before making further changes. A test
 result marked current already describes the code; re-run only the ones that
@@ -78,10 +76,17 @@ def _events_block(records: List[Dict]) -> str:
     return "\n".join(json.dumps(r, ensure_ascii=False) for r in records)
 
 
-def render(store: Store, reason: str = "manual_handoff", target_agent: Optional[str] = None) -> str:
-    """Build HANDOFF.md content from the durable state on disk."""
+def render(
+    store: Store, reason: str = "manual_handoff", target_agent: Optional[str] = None,
+    git: Optional[GitState] = None,
+) -> str:
+    """Build HANDOFF.md content from the durable state on disk.
+
+    `git` is the repository state to describe; by default the last snapshot.
+    `handoff resume` passes the live one.
+    """
     task = store.read_task()
-    git = store.read_git()
+    git = git if git is not None else store.read_git()
     failure = last_failure(store)
     to_agent = target_agent or task.fallback_agent
 
