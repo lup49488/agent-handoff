@@ -27,6 +27,7 @@ from agent_handoff import health as health_mod
 from agent_handoff import integrity as integrity_mod
 from agent_handoff import lock as lock_mod
 from agent_handoff import sessions as sessions_mod
+from agent_handoff import testresult
 from agent_handoff.adapters import AdapterError
 from agent_handoff.config import ConfigError
 from agent_handoff.adapters import registry
@@ -239,6 +240,11 @@ def cmd_tests(args: argparse.Namespace) -> int:
     if output.strip():
         lines = output.strip().splitlines()
         record["output_tail"] = "\n".join(lines[-TEST_OUTPUT_LINES:])
+    # The code the result was taken on, so the next agent can tell whether it
+    # still holds. Record straight after running, before editing again.
+    tree = testresult.tree(store.root)
+    if tree is not None:
+        record["tree"] = tree
 
     atomic_write(store.tests_file, json.dumps(record, indent=2, ensure_ascii=False) + "\n")
     log_command(store, args.cmd, exit_code=args.exit_code, note="tests")
@@ -273,12 +279,15 @@ def cmd_status(args: argparse.Namespace) -> int:
     if store.tests_file.is_file():
         try:
             tests = json.loads(store.tests_file.read_text(encoding="utf-8"))
+            state, _ = testresult.freshness(store.root, tests)
             _echo(
                 "tests    : "
                 + ("passed" if tests.get("passed") else "FAILED")
                 + "  "
                 + str(tests.get("cmd", ""))
                 + ("  (" + tests["summary"] + ")" if tests.get("summary") else "")
+                + {testresult.CURRENT: "  [current]",
+                   testresult.STALE: "  [stale: the code has changed since]"}.get(state, "")
             )
         except ValueError:
             _echo("tests    : unreadable tests.json")

@@ -11,6 +11,19 @@ is still below 1.0, so the interface may still change.
 
 ## [Unreleased]
 
+### Added
+
+- A recorded test result says whether it still describes the code.
+  `handoff tests` records the tree the result was taken on — HEAD and a
+  digest of every uncommitted change, tracked or untracked, leaving out the
+  handoff layer's own files — and `HANDOFF.md`, `handoff status` and
+  `handoff verify` compare it with the code as it is now: current, stale (and
+  why), or unknown for records made before this. The resume instructions and
+  the skill tell a successor that a current result need not be re-run. In the
+  recovery pilot's task E v3 every recovery re-ran a ten-second check to
+  learn what the package already said, because nothing told it whether the
+  recorded result was taken on the code in front of it.
+
 ### Fixed
 
 - Taking the lock could fail with "Permission denied" when its holder

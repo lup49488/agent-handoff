@@ -27,7 +27,7 @@ handoff checkpoint --objective "..." --done "..." --decision "..." --next "..."
 `--done` and `--decision` are repeatable. Later runs patch the existing checkpoint; use `--show` to read it and `--replace` only when a fresh checkpoint is warranted.
 
 - Add `--problem` only when something is genuinely blocking progress.
-- After a meaningful test run, automatically record its actual command and exit code:
+- After a meaningful test run, automatically record its actual command and exit code, straight after the run and before editing again—the record is tied to the code as it is when you record it:
 
 ```text
 handoff tests "python -m pytest -q" --exit-code 0 --summary "291 passed"
@@ -44,4 +44,4 @@ handoff tests "python -m pytest -q" --exit-code 0 --summary "291 passed"
 
 ## Take over work
 
-Start from the evidence package, then continue from the most advanced valid repository state. Preserve unrelated worktree changes. Update the checkpoint when a new decision, meaningful test result, blocker, or next step emerges.
+Start from the evidence package, then continue from the most advanced valid repository state. Preserve unrelated worktree changes. `HANDOFF.md` says whether the latest test result was taken on the code as it is now: a result marked current already describes it and need not be re-run to know where the work stands; re-run a stale or unknown one before relying on it. Update the checkpoint when a new decision, meaningful test result, blocker, or next step emerges.

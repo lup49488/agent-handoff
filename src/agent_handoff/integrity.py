@@ -21,6 +21,7 @@ from typing import List, Optional
 from agent_handoff import checkpoint as checkpoint_mod
 from agent_handoff import gitinfo
 from agent_handoff import lock as lock_mod
+from agent_handoff import testresult
 from agent_handoff.handoff import RESUME_INSTRUCTION
 from agent_handoff.store import Store
 
@@ -148,6 +149,20 @@ def inspect(store: Store) -> List[Finding]:
                     WARNING,
                     "git.json is stale: recorded " + str(stored.head) + ", now " + str(current.head),
                     "`handoff snapshot` refreshes it",
+                )
+            )
+
+    if store.tests_file.is_file():
+        try:
+            tests = json.loads(store.tests_file.read_text(encoding="utf-8"))
+        except ValueError:
+            tests = None
+        if isinstance(tests, dict) and testresult.freshness(store.root, tests)[0] == testresult.STALE:
+            found.append(
+                Finding(
+                    WARNING,
+                    "the latest test result was taken on different code: " + str(tests.get("cmd", "")),
+                    "re-run it and record it with `handoff tests`",
                 )
             )
 

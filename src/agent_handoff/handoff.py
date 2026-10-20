@@ -11,6 +11,7 @@ from typing import Dict, List, Optional
 
 from agent_handoff import checkpoint as checkpoint_mod
 from agent_handoff import gitinfo
+from agent_handoff import testresult
 from agent_handoff.events import last_failure
 from agent_handoff.models import Task, now
 from agent_handoff.store import Store, atomic_write
@@ -28,9 +29,12 @@ First inspect:
 1. HANDOFF.md
 2. current git diff
 3. modified files
-4. latest test results
+4. latest test results -- each says whether it was taken on the code as it
+   is now
 
-Verify the current repository state before making further changes.
+Verify the current repository state before making further changes. A test
+result marked current already describes the code; re-run only the ones that
+are not.
 
 Continue the original task from the most advanced valid state available.
 
@@ -157,12 +161,12 @@ def render(store: Store, reason: str = "manual_handoff", target_agent: Optional[
         parts.append(_section("Recent events", _fenced(_events_block(events), "json")))
 
     if store.tests_file.is_file():
-        parts.append(
-            _section(
-                "Latest test results",
-                _fenced(store.tests_file.read_text(encoding="utf-8").strip(), "json"),
-            )
-        )
+        text = store.tests_file.read_text(encoding="utf-8").strip()
+        try:
+            _, note = testresult.freshness(store.root, json.loads(text))
+        except ValueError:
+            note = "Unreadable record: re-run the tests before relying on it."
+        parts.append(_section("Latest test results", note + "\n\n" + _fenced(text, "json")))
 
     for label, name in (("stdout", "stdout.log"), ("stderr", "stderr.log")):
         tail = store.tail_log(name, LOG_TAIL_LINES)

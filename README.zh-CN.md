@@ -77,7 +77,7 @@ handoff switch --to claude --reason quota_exhausted
 | --- | --- |
 | `handoff status` | 查看任务、检查点、测试结果与最近事件。 |
 | `handoff checkpoint --next "..."` | 在里程碑记录进度、决策、问题与下一步。 |
-| `handoff tests "pytest -q" --exit-code 0` | 将最新测试结果写入交接包。 |
+| `handoff tests "pytest -q" --exit-code 0` | 将最新测试结果写入交接包，并记下它是在哪份代码上跑的，交接包据此标明结果是否仍然有效。 |
 | `handoff pack --to claude` | 不启动 Agent，仅重新生成 `HANDOFF.md`。 |
 | `handoff agents -v` | 查看已安装 Agent 和实际启动命令。 |
 | `handoff config --init` | 创建项目级 fallback 链配置。 |

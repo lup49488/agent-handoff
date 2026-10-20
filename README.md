@@ -89,7 +89,7 @@ what would happen and changes nothing.
 | --- | --- |
 | `handoff status` | task, checkpoint, test result and recent events |
 | `handoff checkpoint --next "..."` | record progress, decisions, the current problem and the next step |
-| `handoff tests "pytest -q" --exit-code 0` | put the latest test result in the package |
+| `handoff tests "pytest -q" --exit-code 0` | put the latest test result in the package, with the code it ran on, so the package can say whether it still holds |
 | `handoff pack --to claude` | re-render `HANDOFF.md` without launching anything |
 | `handoff agents -v` | which agents are installed, and the exact command line each is started with |
 | `handoff config --init` | write a starter chain configuration |
