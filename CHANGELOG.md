@@ -11,7 +11,21 @@ is still below 1.0, so the interface may still change.
 
 ## [Unreleased]
 
+### Changed
+
+- The skill asks for the first check after a fix to be recorded as soon as
+  it is read, for a test result and the checkpoint it settles to be recorded
+  in one shell command, and for `handoff pack` only when work is handed
+  over. In pilot pair E-r06 the source fixed the offset and recorded nothing
+  before the stop, and the recovery spent five calls keeping the package
+  current, including a final pack, that paid nothing.
+
 ### Added
+
+- Pilot pair E-r06, checking `handoff resume` and test-result freshness:
+  the takeover took one call instead of four to seven, and a pre-fix result
+  was correctly marked stale and re-run. The Handoff recovery was still 75
+  seconds slower, mostly in its investigation.
 
 - `handoff resume`: take over in one read-only step. It runs the integrity
   check and prints the package rendered again against the live repository —

@@ -218,6 +218,22 @@ Until a task exists that rewards the first and the product does the second,
 more pairs on these fixtures would spend quota without being able to change
 the answer.
 
+## Since the pilot
+
+The first two changes have been made. `handoff tests` records the code a
+result ran on, and `HANDOFF.md`, `handoff status` and `handoff verify` say
+whether it is current, stale or unknown; `handoff resume` verifies and prints
+the package against the live repository in one read-only step. One pair,
+E-r06, checked them: the takeover took one call instead of four to seven,
+and a pre-fix result was correctly marked stale and re-run. But the source
+had recorded nothing after its fix, so no current result arose to skip, and
+the recovery spent five calls keeping the package current — two test
+records, two checkpoints, a final pack — that paid nothing because it was
+not interrupted. The skill now asks for the first check after a fix to be
+recorded at once, for a result and its checkpoint to go in one command, and
+for no pack unless work is being handed over. Details are in
+[the pilot log](recovery-benchmark-v04-pilot.md#e-r06-handoff-resume-and-test-result-freshness).
+
 ## What the pilot leaves behind
 
 - **The skill** now asks for a substantive checkpoint before the first edit, a

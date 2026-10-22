@@ -991,6 +991,49 @@ to cost fewer calls than the few it saves.
 - Use only synthetic/public task data. Keep authentication material and raw
   provider sessions out of result bundles.
 
+### E-r06: `handoff resume` and test-result freshness
+
+After the pilot concluded, two product changes addressed its finding that
+taking a package over cost more than it saved: test results now record the
+code they ran on, so a package can say whether one still holds, and
+`handoff resume` takes over in one read-only step. E-r06 (schema 6, seed
+20261026, Handoff first, the skill revised for both) checked them.
+
+| | Handoff | Baseline |
+|---|---:|---:|
+| Source: progress | 78.6 s | 55.8 s |
+| Source: stopped | 120.4 s | 120.4 s |
+| Package at the stop | plan only; pre-fix test result | — |
+| Recovery reaches full acceptance | 207.9 s | 133.2 s |
+| Recovery: all tool calls | 18 | 12 |
+| Recovery: `handoff` calls (wall time) | 6 (13.5 s) | 0 |
+| Recovery: calls that read the ledger | 13 | 10 |
+
+Both recoveries passed acceptance on the first final check, in scope,
+uncontaminated, with every process tree ended.
+
+- **The takeover took one call.** After reading the skill, the recovery ran
+  `handoff --version; … handoff resume` and started work; before, the
+  takeover alone was four to seven calls.
+- **Freshness was right.** The only test result in the package was taken
+  before the offset fix (274 mismatches), and `HANDOFF.md` marked it
+  **Stale**; the recovery re-ran the checker, as it should, and found two.
+  The path the change is for — a current result a successor need not re-run
+  — did not arise: the source fixed the offset at 78.6 seconds and recorded
+  neither a test result nor a checkpoint before the stop at 120.
+- **The rest of the overhead moved to upkeep.** The recovery recorded two
+  test results, two checkpoints and a final `handoff pack` — five calls
+  that only pay if the recovery is itself interrupted, which it was not.
+- **The recovery was 75 seconds slower,** almost all of it in the
+  investigation: about 160 seconds from listing the two days' transactions
+  to the fix, against the Baseline's 92, including a call spent on a
+  PowerShell quoting error. One pair.
+
+The skill now asks for the first check after a fix to be recorded as soon as
+it is read — the moment a successor most needs, and the one E-r06's source
+missed — for a result and the checkpoint it settles to go in one shell
+command, and for `handoff pack` only when handing work over.
+
 ## Outcomes
 
 Primary outcome: after interruption, did the fresh recovery session pass every

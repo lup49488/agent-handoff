@@ -27,21 +27,23 @@ handoff checkpoint --objective "..." --done "..." --decision "..." --next "..."
 `--done` and `--decision` are repeatable. Later runs patch the existing checkpoint; use `--show` to read it and `--replace` only when a fresh checkpoint is warranted.
 
 - Add `--problem` only when something is genuinely blocking progress.
-- After a meaningful test run, automatically record its actual command and exit code, straight after the run and before editing again—the record is tied to the code as it is when you record it:
+- After a meaningful test run, automatically record its actual command and exit code, straight after the run and before editing again—the record is tied to the code as it is when you record it. Above all, record the first check after a fix as soon as you have read it: the fix is then on disk, but whether it worked, and what still fails, is not, and a successor would otherwise re-run the check to find out.
 
 ```text
 handoff tests "python -m pytest -q" --exit-code 0 --summary "291 passed"
 ```
+
+- When a result also settles something worth a checkpoint, record both in one shell command once you have read the output—`handoff tests ...; handoff checkpoint --done "..."`—rather than in two separate steps.
 
 - Never claim a test passed or a handoff was verified without having run the corresponding command in the current task.
 - Record a result only after you have read its output, and state what the output said—"check_report: 2 mismatches, B 09-17 and 09-23", not what you expect it to say. Do not chain `handoff tests` or a checkpoint that states a result onto the command that produces it, and do not write the result into a checkpoint before the command has finished: a slow check that has not returned, or that failed, must not be recorded as passing. A successor trusts a recorded pass and may stop on it.
 
 ## Hand work over safely
 
-- For a reviewable package without starting another agent, use `handoff pack --to <agent>` after a current checkpoint and test record. It updates `HANDOFF.md`.
+- For a reviewable package without starting another agent, use `handoff pack --to <agent>` after a current checkpoint and test record. It updates `HANDOFF.md`. Run it only when handing work over or when the user asks for a package: `handoff tests` and `handoff checkpoint` already keep the state current, and `handoff resume` renders it on demand, so packing at the end of finished work costs a step and gives no one anything.
 - `handoff switch` and `handoff run` can start another agent and spend the user's quota. Run either only with the user's explicit authorization, and use `--dry-run` or `--no-launch` when they ask only to prepare a handoff.
 - If `handoff verify` reports damage or drift, report it before handing over. Use `handoff recover --dry-run` to inspect recovery actions; `--break-lock` needs explicit user authorization because it can disrupt a live process.
 
 ## Take over work
 
-Start from the evidence package, then continue from the most advanced valid repository state. Preserve unrelated worktree changes. `HANDOFF.md` says whether the latest test result was taken on the code as it is now: a result marked current already describes it and need not be re-run to know where the work stands; re-run a stale or unknown one before relying on it. Update the checkpoint when a new decision, meaningful test result, blocker, or next step emerges.
+Start from the evidence package, then continue from the most advanced valid repository state. Preserve unrelated worktree changes. `HANDOFF.md` says whether the latest test result was taken on the code as it is now: a result marked current already describes it and need not be re-run to know where the work stands; re-run a stale or unknown one before relying on it. After taking over, keep recording as described under Record progress, and no more often: a checkpoint when a finding is settled and a test record per meaningful run, not one after every command.
