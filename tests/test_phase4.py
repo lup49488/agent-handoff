@@ -209,7 +209,7 @@ def test_a_config_defined_agent_can_take_over_a_handoff(project):
 
     assert run(store, Dies(project), [registry.get("helper", project)]) == 0
     task = store.read_task()
-    assert task.status == "done"
+    assert task.status == "exited"  # a clean exit nothing verified
     assert task.source_agent == "helper"
     assert "resumed:" in (store.logs_dir / "stdout.log").read_text(encoding="utf-8")
 

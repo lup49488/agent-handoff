@@ -71,7 +71,7 @@ def test_twenty_injected_failovers_preserve_work_and_a_valid_package(tmp_path, a
     ) == 0
 
     assert work_file.read_text(encoding="utf-8") == original
-    assert store.read_task().status == "done"
+    assert store.read_task().status == "exited"  # a clean exit nothing verified
     assert integrity.verify_package(store) == []
 
     events = list(store.iter_jsonl(store.events_file))

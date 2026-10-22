@@ -28,6 +28,7 @@ KNOWN_KEYS = (
     "fallback",
     "checkpoint_protocol",
     "stall_timeout_seconds",
+    "done_check",
     "health",
     "cooldowns",
     "read_agent_sessions",
@@ -73,6 +74,12 @@ health = true
 # endpoint shows none of them and never exits; waiting forever for that is the
 # delay this tool exists to avoid. 0 waits forever.
 stall_timeout_seconds = 900
+
+# A command that must pass for an agent's clean exit to count as done. An
+# agent can exit 0 without finishing; if this fails, the next agent continues.
+# Without it, a clean exit is done only if the latest recorded test result
+# passed on the code as it is now, and is otherwise reported as unverified.
+# done_check = "python -m pytest -q"
 
 # Adapters can be corrected -- or invented -- here. `handoff agents` prints the
 # command line each agent will actually be started with.
@@ -302,6 +309,8 @@ class Config:
     #: Seconds of total silence before a supervised agent counts as stalled.
     #: 0 waits forever.
     stall_timeout_seconds: float = 900.0
+    #: A command that must pass for a clean exit to count as done.
+    done_check: Optional[str] = None
     #: Skip agents believed to be out of action. Advice only -- see health.py.
     health: bool = True
     #: `[cooldowns]` overrides, in seconds, keyed by failure reason.
@@ -421,11 +430,16 @@ def from_dict(data: Dict[str, Any], path: Optional[Path] = None) -> Config:
     if isinstance(stall, bool) or not isinstance(stall, (int, float)) or stall < 0:
         raise ConfigError("stall_timeout_seconds must be a number of seconds (0 waits forever)")
 
+    done_check = table.get("done_check")
+    if done_check is not None and (not isinstance(done_check, str) or not done_check.strip()):
+        raise ConfigError("done_check must be a command string")
+
     return Config(
         primary=primary,
         fallback=fallback,
         checkpoint_protocol=protocol,
         stall_timeout_seconds=float(stall),
+        done_check=done_check.strip() if done_check else None,
         health=use_health,
         cooldowns={k: int(v) for k, v in cooldowns.items()},
         read_agent_sessions=read_sessions,

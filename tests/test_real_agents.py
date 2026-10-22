@@ -139,7 +139,7 @@ def test_a_silent_agent_is_handed_off_instead_of_waited_on(store):
     )
     assert code == 0
     task = store.read_task()
-    assert task.status == "done"
+    assert task.status == "exited"  # a clean exit nothing verified
     assert task.source_agent == "claude-code"
     failures = [e for e in store.iter_jsonl(store.events_file) if e["event"] == "agent_unavailable"]
     assert failures[0]["reason"] == "agent_stalled"
@@ -157,7 +157,7 @@ def test_an_agent_that_keeps_talking_is_left_alone(store):
         == 0
     )
     task = store.read_task()
-    assert task.status == "done"
+    assert task.status == "exited"  # a clean exit nothing verified
     assert task.source_agent == "codex"  # no handoff happened
     assert task.attempted == []
 

@@ -13,6 +13,18 @@ is still below 1.0, so the interface may still change.
 
 ### Changed
 
+- A clean exit is no longer taken as a finished task. An agent can exit 0
+  without doing what was asked — it gave up, ran out of turns, or stopped to
+  ask a question nobody is there to answer — and `handoff run` marked every
+  clean exit done. A new `done_check` setting (or `--done-check`) names a
+  command that must pass: it is run after a clean exit and recorded as the
+  latest test result; if it passes the task is done, and if it fails the
+  next agent continues it, with the reason `exited_unfinished`, which puts
+  no agent into cooldown. Without a done check, a clean exit is done only if
+  the latest recorded test result passed on the code as it is now, and is
+  otherwise recorded with the new status `exited` and reported as
+  unverified.
+
 - A supervised agent is stalled only when it shows no sign of work at all.
   Silence used to mean no output, so an agent that printed nothing while it
   worked was killed and the task handed on after the timeout: `claude -p`,

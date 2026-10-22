@@ -21,7 +21,8 @@ from typing import Callable, Dict, List, Optional, Sequence, Tuple, Union
 from agent_handoff import gitinfo
 from agent_handoff.adapters.base import AdapterError, AgentAdapter
 from agent_handoff.checkpoint import CHECKPOINT_PROTOCOL
-from agent_handoff.events import log_agent_unavailable, log_event
+from agent_handoff import testresult
+from agent_handoff.events import log_agent_unavailable, log_command, log_event
 from agent_handoff.handoff import RESUME_INSTRUCTION, bump_task, write_package
 from agent_handoff.health import Health
 from agent_handoff.integrity import errors as integrity_errors
@@ -104,6 +105,43 @@ def initial_prompt(request: str, with_protocol: bool = True) -> str:
     if not with_protocol:
         return request
     return request + "\n\n---\n\n" + CHECKPOINT_PROTOCOL
+
+
+#: How long a configured done check may run before it counts as failing.
+DONE_CHECK_TIMEOUT = 3600
+
+#: Reasons a supervisor hands on that say nothing about the agent's health.
+_NOT_UNAVAILABLE = {"exited_unfinished"}
+
+
+def _completion(store: Store, done_check: Optional[str]) -> Tuple[str, str]:
+    """Whether a cleanly exited agent finished: `verified`, `unfinished` or `unverified`.
+
+    An agent can exit 0 without doing what was asked -- it gave up, ran out of
+    turns, or stopped to ask a question nobody is there to answer -- and the
+    supervisor used to mark every clean exit done. With a done check it is run
+    and recorded as the latest test result; without one, a passing result
+    recorded on the code exactly as it is now is the only evidence accepted.
+    """
+    if done_check:
+        try:
+            result = subprocess.run(
+                done_check, shell=True, cwd=str(store.root), capture_output=True,
+                text=True, encoding="utf-8", errors="replace", timeout=DONE_CHECK_TIMEOUT,
+            )
+            exit_code, output = result.returncode, (result.stdout or "") + (result.stderr or "")
+        except subprocess.TimeoutExpired:
+            exit_code, output = 124, "done check timed out after %d s" % DONE_CHECK_TIMEOUT
+        except OSError as exc:
+            exit_code, output = 127, "done check could not start: " + str(exc)
+        testresult.write(store, done_check, exit_code, "done check", output)
+        log_command(store, done_check, exit_code=exit_code, note="done check")
+        if exit_code == 0:
+            return "verified", "done check passed: " + done_check
+        return "unfinished", "done check failed (exit " + str(exit_code) + "): " + done_check
+    if testresult.current_pass(store):
+        return "verified", "the latest test result passed on the code as it is now"
+    return "unverified", "no done check is configured and no passing test result is current"
 
 
 #: How often the supervisor checks on a running agent.
@@ -500,6 +538,7 @@ def run(
     stall_timeout: Optional[float] = DEFAULT_STALL_TIMEOUT,
     health: Optional[Health] = None,
     cooldowns: Optional[Dict[str, int]] = None,
+    done_check: Optional[str] = None,
 ) -> int:
     """Run ``primary``, handing off down ``fallbacks`` as agents become unavailable."""
     chain = [fallbacks] if isinstance(fallbacks, AgentAdapter) else list(fallbacks)
@@ -527,15 +566,24 @@ def run(
         reason = "agent_stalled" if stalled else _classify(current, stdout, stderr, exit_code)
 
         if reason is None:
+            # Outside the lock: a done check can take minutes.
+            verdict, detail = _completion(store, done_check)
             with _state_lock(store):
-                task.status = "done"
-                store.write_task(task)
-                log_event(store, "agent_completed", agent=current.name, exit_code=exit_code)
-            # Per-user state, not the project's: written outside the store lock.
-            health.record_success(current.name)
-            return exit_code
+                if verdict != "unfinished":
+                    task.status = "done" if verdict == "verified" else "exited"
+                    store.write_task(task)
+                    log_event(store, "agent_completed", agent=current.name, exit_code=exit_code,
+                              verified=verdict == "verified", detail=detail)
+            if verdict != "unfinished":
+                # Per-user state, not the project's: written outside the store lock.
+                health.record_success(current.name)
+                return exit_code
+            reason = "exited_unfinished"
 
-        health.record_failure(current.name, reason, cooldowns)
+        if reason in _NOT_UNAVAILABLE:
+            health.record_success(current.name)
+        else:
+            health.record_failure(current.name, reason, cooldowns)
         with _state_lock(store):
             attempted.append(current.name)
             task.attempted = list(attempted)

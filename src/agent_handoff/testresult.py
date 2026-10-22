@@ -19,6 +19,11 @@ from pathlib import Path
 from typing import Dict, Optional, Tuple
 
 from agent_handoff import HANDOFF_DIR, gitinfo
+from agent_handoff.models import now
+from agent_handoff.store import Store, atomic_write
+
+#: How much of a test command's output a record keeps.
+OUTPUT_LINES = 30
 
 CURRENT = "current"
 STALE = "stale"
@@ -46,6 +51,34 @@ def tree(root: Path) -> Optional[Dict[str, str]]:
         except OSError:
             digest.update(b"<unreadable>")
     return {"head": head.strip(), "changes": digest.hexdigest()}
+
+
+def write(store: Store, cmd: str, exit_code: int, summary: str = "", output: str = "") -> Dict[str, object]:
+    """Record a test result as `tests.json`, with the code it was taken on."""
+    import json
+
+    record: Dict[str, object] = {"ts": now(), "cmd": cmd, "exit_code": exit_code, "passed": exit_code == 0}
+    if summary:
+        record["summary"] = summary
+    if output.strip():
+        record["output_tail"] = "\n".join(output.strip().splitlines()[-OUTPUT_LINES:])
+    taken_on = tree(store.root)
+    if taken_on is not None:
+        record["tree"] = taken_on
+    atomic_write(store.tests_file, json.dumps(record, indent=2, ensure_ascii=False) + "\n")
+    return record
+
+
+def current_pass(store: Store) -> bool:
+    """Whether the latest recorded result passed, on the code exactly as it is now."""
+    import json
+
+    try:
+        record = json.loads(store.tests_file.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    return bool(isinstance(record, dict) and record.get("passed")
+                and freshness(store.root, record)[0] == CURRENT)
 
 
 def freshness(root: Path, record: Dict[str, object]) -> Tuple[str, str]:

@@ -164,7 +164,7 @@ def test_work_walks_down_the_whole_chain(project):
 
     assert run(store, primary, [second, third]) == 0
     task = store.read_task()
-    assert task.status == "done"
+    assert task.status == "exited"  # a clean exit nothing verified
     assert task.attempted == ["codex", "claude-code"]
     assert task.handoff_count == 2  # two real handoffs
     assert task.source_agent == "pi"
@@ -195,7 +195,7 @@ def test_an_agent_that_will_not_start_is_skipped(project):
         == 0
     )
     task = store.read_task()
-    assert task.status == "done"
+    assert task.status == "exited"  # a clean exit nothing verified
     assert task.source_agent == "pi"
     assert "claude-code" in task.attempted
 

@@ -225,7 +225,7 @@ def test_supervised_run_completes_and_records_output(project):
     primary = ScriptAdapter(project, "codex", "print('completed')")
     fallback = ScriptAdapter(project, "claude-code", "print('fallback')")
     assert run(store, primary, fallback) == 0
-    assert store.read_task().status == "done"
+    assert store.read_task().status == "exited"  # a clean exit nothing verified
     assert "completed" in (store.logs_dir / "stdout.log").read_text(encoding="utf-8")
 
 
@@ -239,7 +239,7 @@ def test_supervised_run_hands_off_after_rate_limit(project):
     task = store.read_task()
     # The fallback finished the work, so the task is done -- not merely
     # handed off. Its exit is classified like any other agent's.
-    assert task.status == "done"
+    assert task.status == "exited"  # a clean exit nothing verified
     assert task.source_agent == "claude-code"
     assert task.handoff_count == 1
     assert last_failure(store)["reason"] == "rate_limited"

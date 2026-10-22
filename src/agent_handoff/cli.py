@@ -39,9 +39,8 @@ from agent_handoff.events import (
     recent,
 )
 from agent_handoff.models import Task
-from agent_handoff.models import now as models_now
 from agent_handoff.runner import run as supervised_run
-from agent_handoff.store import Store, StoreNotInitialized, atomic_write, find_root
+from agent_handoff.store import Store, StoreNotInitialized, find_root
 
 
 def _echo(msg: str = "") -> None:
@@ -80,9 +79,6 @@ def _open_store() -> Store:
 #: Long enough to ride out another command's write, short enough that a lock
 #: held by a real session still reports rather than hanging.
 LOCK_WAIT_SECONDS = 5.0
-
-#: How much of a test run's output to keep in the handoff package.
-TEST_OUTPUT_LINES = 30
 
 
 @contextlib.contextmanager
@@ -229,24 +225,9 @@ def cmd_tests(args: argparse.Namespace) -> int:
     elif args.from_file:
         output = Path(args.from_file).read_text(encoding="utf-8", errors="replace")
 
-    record = {
-        "ts": models_now(),
-        "cmd": args.cmd,
-        "exit_code": args.exit_code,
-        "passed": args.exit_code == 0,
-    }
-    if args.summary:
-        record["summary"] = args.summary
-    if output.strip():
-        lines = output.strip().splitlines()
-        record["output_tail"] = "\n".join(lines[-TEST_OUTPUT_LINES:])
-    # The code the result was taken on, so the next agent can tell whether it
-    # still holds. Record straight after running, before editing again.
-    tree = testresult.tree(store.root)
-    if tree is not None:
-        record["tree"] = tree
-
-    atomic_write(store.tests_file, json.dumps(record, indent=2, ensure_ascii=False) + "\n")
+    # With the code the result was taken on, so the next agent can tell
+    # whether it still holds. Record straight after running, before editing.
+    record = testresult.write(store, args.cmd, args.exit_code, args.summary or "", output)
     log_command(store, args.cmd, exit_code=args.exit_code, note="tests")
     log_event(store, "tests_recorded", cmd=args.cmd, exit_code=args.exit_code)
     _echo("recorded: " + args.cmd + " -> " + ("passed" if record["passed"] else "failed"))
@@ -507,13 +488,20 @@ def cmd_run(args: argparse.Namespace) -> int:
                 stall_timeout=cfg.stall_timeout_seconds or None,
                 health=book,
                 cooldowns=cfg.cooldowns,
+                done_check=args.done_check or cfg.done_check,
             )
     except (RuntimeError, AdapterError) as exc:
         _echo("error: " + str(exc))
         return 1
 
-    if store.read_task().status == "handoff_prepared":
+    status = store.read_task().status
+    if status == "handoff_prepared":
         _echo("chain exhausted -- " + str(store.handoff_file) + " is ready for whoever picks it up")
+    elif status == "exited":
+        _echo(
+            "the agent exited cleanly, but nothing checked that the task is done -- "
+            "set done_check in the config (or pass --done-check) to have it verified"
+        )
     return code
 
 
@@ -821,6 +809,10 @@ def build_parser() -> argparse.ArgumentParser:
         "--no-checkpoint-protocol",
         action="store_true",
         help="do not ask the agent to maintain a semantic checkpoint",
+    )
+    p_run.add_argument(
+        "--done-check", default=None, metavar="CMD",
+        help="command that must pass for a clean exit to count as done (overrides done_check)",
     )
     p_run.set_defaults(func=cmd_run)
 

@@ -21,6 +21,10 @@ FAILURE_REASONS = (
     # Not a crash: the agent is still running but has gone silent, which for a
     # supervised run is indistinguishable from being gone.
     "agent_stalled",
+    # Not unavailable either: the agent exited cleanly, but the configured
+    # done check failed, so the work is not finished and the next agent
+    # continues it. It does not put the agent into cooldown.
+    "exited_unfinished",
     "provider_error",
     "network_failure",
     "manual_handoff",
