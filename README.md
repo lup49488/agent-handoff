@@ -103,6 +103,9 @@ what would happen and changes nothing.
 `handoff run` saves stdout and stderr, and on a nonzero exit recognises quota
 exhaustion, rate limiting, a full context window, provider errors, network
 failures, process crashes, and an agent that has gone silent past the timeout.
+Silent means no sign of work at all: no output, no change to the work tree or
+the checkpoint, and no CPU use by the agent's processes. An agent that prints
+nothing while it edits files or waits on a long test run is not stalled.
 
 The failure patterns were checked against strings taken from the shipped
 binaries of Codex CLI and Claude Code, and against two real exhaustions. That
@@ -127,7 +130,8 @@ fallback = ["claude-code", "pi"]
 # Ask the working agent to keep state.md current at milestones.
 checkpoint_protocol = true
 
-# Total silence for this long means a wedged agent. 0 waits forever.
+# This long with no output, no file changes and no CPU use means a wedged
+# agent. 0 waits forever.
 stall_timeout_seconds = 900
 
 # Move agents that recently ran out to the back of the queue.

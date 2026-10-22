@@ -13,6 +13,17 @@ is still below 1.0, so the interface may still change.
 
 ### Changed
 
+- A supervised agent is stalled only when it shows no sign of work at all.
+  Silence used to mean no output, so an agent that printed nothing while it
+  worked was killed and the task handed on after the timeout: `claude -p`,
+  the built-in Claude Code command, prints its answer only at the end, and a
+  long test run or build prints nothing until it finishes. Once an agent has
+  been quiet for half the timeout, the supervisor now also looks, at most
+  every 30 seconds, for changes to the work tree and the checkpoint and for
+  CPU use by the agent's process tree (`ps` on POSIX, CIM on Windows); any of
+  them restarts the clock. An agent waiting on an unreachable endpoint shows
+  none and is still handed on. A look that fails is no evidence either way.
+
 - The skill asks for the first check after a fix to be recorded as soon as
   it is read, for a test result and the checkpoint it settles to be recorded
   in one shell command, and for `handoff pack` only when work is handed

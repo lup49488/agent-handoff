@@ -68,9 +68,10 @@ health = true
 # rate_limited = 300
 
 # Seconds of total silence before a supervised agent counts as unavailable.
-# An agent retrying against an unreachable endpoint prints nothing and never
-# exits; waiting forever for that is the delay this tool exists to avoid.
-# 0 waits forever.
+# Silence is no output, no change to the work tree or checkpoint, and no CPU
+# use by the agent's processes. An agent retrying against an unreachable
+# endpoint shows none of them and never exits; waiting forever for that is the
+# delay this tool exists to avoid. 0 waits forever.
 stall_timeout_seconds = 900
 
 # Adapters can be corrected -- or invented -- here. `handoff agents` prints the

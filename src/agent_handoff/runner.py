@@ -16,7 +16,7 @@ import threading
 import time
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Dict, List, Optional, Sequence, Tuple, Union
+from typing import Callable, Dict, List, Optional, Sequence, Tuple, Union
 
 from agent_handoff import gitinfo
 from agent_handoff.adapters.base import AdapterError, AgentAdapter
@@ -114,7 +114,27 @@ POLL_SECONDS = 1.0
 PIPE_DRAIN_SECONDS = 10.0
 
 #: Total silence for this long means a wedged agent, not a thinking one.
+#: Silence is the absence of every sign of work, not only of output: see
+#: `_ActivityProbe`.
 DEFAULT_STALL_TIMEOUT = 900.0
+
+#: How often, once an agent has gone quiet, the supervisor looks for work that
+#: does not print: files changing, or its process tree using the CPU.
+ACTIVITY_PROBE_SECONDS = 30.0
+
+#: CPU time, as a share of the wall time between two looks, above which an
+#: agent's process tree counts as working. A long test run or build uses a
+#: core; an agent waiting on an unreachable endpoint uses almost nothing.
+CPU_BUSY_FRACTION = 0.05
+
+#: The handoff files an agent writes as it works. A checkpoint is work.
+_AGENT_STATE_FILES = ("state.md", "checkpoints.jsonl", "tests.json", "events.jsonl", "commands.jsonl")
+
+#: Outside a git repository the work tree is walked directly; these are
+#: skipped (the handoff directory is watched through the files above) and the
+#: walk stops after this many files.
+_UNWATCHED_DIRS = {".git", ".agent-handoff", "node_modules", "__pycache__", ".venv", "venv"}
+_UNWATCHED_FILE_LIMIT = 10000
 
 # Checkpoint writes normally hold the ordinary lock for milliseconds. The
 # supervisor must not hold it while the agent works, but must coordinate each
@@ -215,8 +235,155 @@ def _kill_process_tree(process) -> bool:
     return False
 
 
+def _workspace_state(store: Store) -> Tuple:
+    """What a silent agent may be changing: the work tree and its own checkpoints.
+
+    Every path `git status` reports, with its size and modification time, so
+    that a second edit to an already-modified file still registers; and the
+    handoff files the agent itself writes. The supervisor's own logs are not
+    included: they change only when the agent prints, which already counts.
+    """
+    entries = []
+    if gitinfo.is_repo(store.root):
+        _, status, _ = gitinfo.run_git(store.root, "status", "--porcelain", "-z", "--untracked-files=all")
+        for item in status.split("\0"):
+            path = item[3:] if len(item) > 3 else ""
+            if not path or gitinfo._is_self(path):
+                continue
+            try:
+                stat = (store.root / path).stat()
+                entries.append((path, stat.st_size, stat.st_mtime_ns))
+            except OSError:
+                entries.append((path, None, None))
+    else:
+        # No git to ask: look at the files themselves, within a bound.
+        seen = 0
+        for directory, dirs, files in os.walk(store.root):
+            dirs[:] = [d for d in dirs if d not in _UNWATCHED_DIRS]
+            for name in files:
+                seen += 1
+                if seen > _UNWATCHED_FILE_LIMIT:
+                    break
+                path = Path(directory) / name
+                try:
+                    stat = path.stat()
+                except OSError:
+                    continue
+                entries.append((str(path.relative_to(store.root)), stat.st_size, stat.st_mtime_ns))
+            if seen > _UNWATCHED_FILE_LIMIT:
+                break
+    for name in _AGENT_STATE_FILES:
+        try:
+            stat = (store.dir / name).stat()
+            entries.append((name, stat.st_size, stat.st_mtime_ns))
+        except OSError:
+            continue
+    return tuple(sorted(entries, key=repr))
+
+
+def _cpu_seconds_of_tree(pid: int) -> Optional[float]:
+    """Total CPU time used so far by `pid` and its descendants, or None.
+
+    The standard library cannot see other processes, so this asks the
+    system: `ps` on POSIX, CIM through PowerShell on Windows. Any failure
+    means no CPU evidence either way, never a verdict of idleness.
+    """
+    try:
+        if os.name == "nt":
+            script = (
+                "Get-CimInstance Win32_Process | ForEach-Object { '{0} {1} {2}' -f "
+                "$_.ProcessId, $_.ParentProcessId, ($_.UserModeTime + $_.KernelModeTime) }"
+            )
+            out = subprocess.run(
+                ["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
+                capture_output=True, text=True, timeout=20, check=True,
+            ).stdout
+            rows = {}
+            for line in out.splitlines():
+                parts = line.split()
+                if len(parts) == 3:
+                    rows[int(parts[0])] = (int(parts[1]), int(parts[2]) / 1e7)
+        else:
+            out = subprocess.run(
+                ["ps", "-A", "-o", "pid=", "-o", "ppid=", "-o", "time="],
+                capture_output=True, text=True, timeout=20, check=True,
+            ).stdout
+            rows = {}
+            for line in out.splitlines():
+                parts = line.split()
+                if len(parts) == 3:
+                    rows[int(parts[0])] = (int(parts[1]), _ps_time(parts[2]))
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return None
+    if pid not in rows:
+        return None
+    children: Dict[int, List[int]] = {}
+    for child, (parent, _) in rows.items():
+        if child != parent:
+            children.setdefault(parent, []).append(child)
+    total, stack, seen = 0.0, [pid], set()
+    while stack:
+        current = stack.pop()
+        if current in seen:
+            continue
+        seen.add(current)
+        total += rows.get(current, (0, 0.0))[1]
+        stack.extend(children.get(current, ()))
+    return total
+
+
+def _ps_time(text: str) -> float:
+    """`ps` cumulative time: `[[dd-]hh:]mm:ss[.ss]`."""
+    days, _, clock = text.rpartition("-")
+    seconds = 0.0
+    for part in clock.split(":"):
+        seconds = seconds * 60 + float(part)
+    return seconds + (int(days) * 86400 if days else 0)
+
+
+class _ActivityProbe:
+    """Whether a quiet agent has done any work since the last look.
+
+    Before this, silence meant no output, and an agent printing nothing while
+    it worked was killed as stalled: `claude -p` prints its answer only at the
+    end, and a long test run or build prints nothing until it finishes. Work
+    leaves other traces -- files change, the agent checkpoints, its process
+    tree uses the CPU -- and an agent waiting on an unreachable endpoint
+    leaves none of them.
+    """
+
+    def __init__(self, store: Store, pid: int) -> None:
+        self.store = store
+        self.pid = pid
+        self.workspace = _workspace_state(store)
+        self.cpu: Optional[float] = None
+        self.cpu_at: Optional[float] = None
+        #: Whether CPU use has been judged at all: it takes two readings, so
+        #: the first look can only set the baseline. False until it has.
+        self.judged = False
+
+    def __call__(self) -> bool:
+        busy = False
+        workspace = _workspace_state(self.store)
+        if workspace != self.workspace:
+            self.workspace = workspace
+            busy = True
+        cpu = _cpu_seconds_of_tree(self.pid)
+        now = time.monotonic()
+        if cpu is None:
+            self.judged = True  # no CPU evidence to wait for
+        elif self.cpu is not None and self.cpu_at is not None and now > self.cpu_at:
+            self.judged = True
+            if cpu - self.cpu >= CPU_BUSY_FRACTION * (now - self.cpu_at):
+                busy = True
+        if cpu is not None:
+            self.cpu, self.cpu_at = cpu, now
+        return busy
+
+
 def _drain(
-    store: Store, process, stall_timeout: Optional[float] = None
+    store: Store, process, stall_timeout: Optional[float] = None,
+    activity_probe: Optional[Callable[[], bool]] = None,
 ) -> Tuple[int, str, str, bool]:
     """Wait for a running agent, collecting what it printed.
 
@@ -224,6 +391,8 @@ def _drain(
     retrying in silence, producing nothing and never exiting. Waiting forever
     for that is the exact loss of time this tool exists to prevent, so total
     silence past `stall_timeout` is treated as an agent becoming unavailable.
+    Silence is no output *and* no other sign of work (`_ActivityProbe`),
+    looked for once the agent has been quiet for half the timeout.
     """
     stdout: List[str] = []
     stderr: List[str] = []
@@ -250,13 +419,39 @@ def _drain(
         reader.start()
 
     stalled = False
+    probe = activity_probe
+    if probe is None and stall_timeout:
+        try:
+            probe = _ActivityProbe(store, process.pid)
+        except Exception:
+            probe = None
+    probe_every = min(ACTIVITY_PROBE_SECONDS, stall_timeout / 2) if stall_timeout else None
+    last_probe = [0.0]
     try:
         while True:
             try:
                 exit_code = process.wait(timeout=POLL_SECONDS)
                 break
             except subprocess.TimeoutExpired:
-                if stall_timeout and (time.monotonic() - activity[0]) > stall_timeout:
+                now = time.monotonic()
+                if (probe is not None and probe_every is not None
+                        and now - activity[0] >= probe_every and now - last_probe[0] >= probe_every):
+                    last_probe[0] = now
+                    try:
+                        if probe():
+                            touch()
+                            continue
+                    except Exception:
+                        pass  # a failed look is no evidence either way
+                silence = time.monotonic() - activity[0]
+                # Give the CPU one more look if it has not yet been judged --
+                # with a short timeout the first reading can land at the
+                # deadline -- but never more than one probe interval longer.
+                if (stall_timeout and probe_every is not None and silence > stall_timeout
+                        and not getattr(probe, "judged", True)
+                        and silence <= stall_timeout + probe_every):
+                    continue
+                if stall_timeout and silence > stall_timeout:
                     stalled = True
                     _kill_process_tree(process)
                     # Process-tree tools can fail or return before the direct
