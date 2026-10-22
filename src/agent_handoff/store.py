@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from pathlib import Path
 from typing import Any, Dict, Iterator, List, Optional
 
@@ -21,6 +22,10 @@ class StoreNotInitialized(RuntimeError):
     pass
 
 
+#: How long to keep retrying a replace that a reader is momentarily blocking.
+REPLACE_RETRY_SECONDS = 1.0
+
+
 def atomic_write(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(path.name + ".tmp")
@@ -28,7 +33,19 @@ def atomic_write(path: Path, text: str) -> None:
         fh.write(text)
         fh.flush()
         os.fsync(fh.fileno())
-    os.replace(tmp, path)
+    # On Windows a file another handle has open cannot be replaced: a
+    # checkpoint written while `handoff resume`, `status` or a watcher was
+    # reading state.md failed with access denied. Readers hold the file for
+    # moments, so retry briefly; a file still held after that is reported.
+    deadline = time.monotonic() + REPLACE_RETRY_SECONDS
+    while True:
+        try:
+            os.replace(tmp, path)
+            return
+        except PermissionError:
+            if time.monotonic() >= deadline:
+                raise
+            time.sleep(0.02)
 
 
 def find_root(start: Optional[Path] = None) -> Optional[Path]:

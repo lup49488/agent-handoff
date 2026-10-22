@@ -17,6 +17,7 @@ import os
 import platform
 import socket
 import sys
+import time
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -115,6 +116,33 @@ def _mine(command: str) -> LockInfo:
     )
 
 
+#: How long to keep trying to delete a lock file another process has open.
+UNLINK_RETRY_SECONDS = 1.0
+
+
+def _unlink(path: Path) -> None:
+    """Delete a lock file, waiting briefly while someone else is reading it.
+
+    On Windows a file cannot be deleted while another handle has it open, and
+    a process waiting for the lock opens it to read who holds it. Releasing
+    at that moment raised "being used by another process" (WinError 32): the
+    lock file stayed, and the waiter -- the very process it was being freed
+    for -- timed out on it. The reader's handle is held for microseconds, so
+    a short retry is enough; a file still held after that is reported.
+    """
+    deadline = time.monotonic() + UNLINK_RETRY_SECONDS
+    while True:
+        try:
+            path.unlink()
+            return
+        except FileNotFoundError:
+            return
+        except PermissionError:
+            if time.monotonic() >= deadline:
+                raise
+            time.sleep(0.02)
+
+
 class Lock:
     """Advisory lock over one `.agent-handoff/` directory."""
 
@@ -157,10 +185,10 @@ class Lock:
         holder = read(self.path)
         if holder is None:
             # An empty or unreadable lock file is debris, not a claim.
-            self.path.unlink(missing_ok=True)
+            _unlink(self.path)
         elif holder.is_stale():
             self.broke = holder
-            self.path.unlink(missing_ok=True)
+            _unlink(self.path)
         elif not holder.is_local:
             raise LockBusy(
                 "locked by " + holder.describe()
@@ -184,7 +212,7 @@ class Lock:
             return
         holder = read(self.path)
         if holder and (holder.pid, holder.acquired_at) == (self.info.pid, self.info.acquired_at):
-            self.path.unlink(missing_ok=True)
+            _unlink(self.path)
         self.held = False
 
     def __enter__(self) -> "Lock":

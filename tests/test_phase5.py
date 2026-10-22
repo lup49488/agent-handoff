@@ -496,6 +496,52 @@ def test_a_lock_released_just_after_an_access_denied_open_is_taken(project, monk
     assert lock_mod.read(project.lock_file).command == "next-writer"
 
 
+def test_a_lock_is_released_while_a_waiter_is_reading_it(project):
+    """Windows CI: release hit WinError 32 because a waiter had the file open.
+
+    The waiter reads the lock to learn who holds it. On Windows a file cannot
+    be deleted while another handle is open on it, so the release failed, the
+    lock stayed, and the waiter timed out on a lock that should have been
+    free. A real handle is held here; elsewhere the delete simply succeeds.
+    """
+    import threading
+    import time
+
+    holder = lock_mod.Lock(project.lock_file, "brief-writer")
+    holder.acquire()
+    opened = threading.Event()
+
+    def read_for_a_moment():
+        with open(project.lock_file, encoding="utf-8") as handle:
+            handle.read()
+            opened.set()
+            time.sleep(0.1)
+
+    reader = threading.Thread(target=read_for_a_moment)
+    reader.start()
+    assert opened.wait(timeout=2)
+    try:
+        holder.release()
+    finally:
+        reader.join(timeout=2)
+
+    assert not project.lock_file.exists()
+    assert lock_mod.Lock(project.lock_file, "next-writer").acquire().held
+
+
+def test_a_lock_file_that_stays_in_use_is_reported_not_left_silently(project, monkeypatch):
+    holder = lock_mod.Lock(project.lock_file, "brief-writer")
+    holder.acquire()
+    monkeypatch.setattr(lock_mod, "UNLINK_RETRY_SECONDS", 0.1)
+
+    def in_use(self, *args, **kwargs):
+        raise PermissionError(32, "The process cannot access the file because it is being used by another process")
+
+    monkeypatch.setattr(lock_mod.Path, "unlink", in_use)
+    with pytest.raises(PermissionError):
+        holder.release()
+
+
 def test_a_lock_held_for_a_long_time_is_still_reported(project, capsys):
     """Waiting must not turn into hanging on a session-length lock."""
     import agent_handoff.cli as cli_mod
@@ -512,3 +558,35 @@ def test_a_lock_held_for_a_long_time_is_still_reported(project, capsys):
     finally:
         monkey.release()
     assert "locked by pid" in capsys.readouterr().out
+
+
+def test_a_checkpoint_is_written_while_a_reader_has_state_md_open(project):
+    """Windows refuses to replace a file another handle has open.
+
+    A checkpoint written while `handoff resume`, `status` or a watcher was
+    reading state.md failed with access denied; the reader lets go in moments.
+    """
+    import threading
+    import time
+
+    from agent_handoff.store import atomic_write
+
+    target = project.dir / "state.md"
+    atomic_write(target, "old\n")
+    opened = threading.Event()
+
+    def read_for_a_moment():
+        with open(target, encoding="utf-8") as handle:
+            handle.read()
+            opened.set()
+            time.sleep(0.1)
+
+    reader = threading.Thread(target=read_for_a_moment)
+    reader.start()
+    assert opened.wait(timeout=2)
+    try:
+        atomic_write(target, "new\n")
+    finally:
+        reader.join(timeout=2)
+
+    assert target.read_text(encoding="utf-8") == "new\n"

@@ -73,6 +73,18 @@ is still below 1.0, so the interface may still change.
 
 ### Fixed
 
+- On Windows, releasing the lock could fail while another process was
+  waiting for it. A waiter opens the lock file to read who holds it, and
+  Windows will not delete a file another handle has open: the release
+  raised "being used by another process" (WinError 32), the lock file
+  stayed, and the waiter timed out on a lock that should have been free.
+  Deleting the lock file now retries for up to a second. Found by the
+  busy-lock test failing again on Windows CI (Python 3.9) after the fix
+  below; a new test holds a real read handle across the release.
+- On Windows, a checkpoint or other state write could fail with "access
+  denied" while a reader had the file open: Windows will not replace a file
+  another handle has open, and `handoff resume`, `status` and watchers read
+  `state.md`. The replace in `atomic_write` now retries for up to a second.
 - Taking the lock could fail with "Permission denied" when its holder
   released it at the wrong moment. On Windows an exclusive create that
   collides with an existing lock can be reported as access denied; the lock
