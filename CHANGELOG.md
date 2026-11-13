@@ -45,6 +45,11 @@ is still below 1.0, so the interface may still change.
 
 ### Added
 
+- A test of two handoffs in a row (A -> B -> C) in a real repository, with
+  work at every hop: the third agent inherits both earlier agents'
+  uncommitted work, including an untracked file, the second agent's
+  checkpoint and test result marked current, and a package that verifies.
+
 - Pilot pair E-r06, checking `handoff resume` and test-result freshness:
   the takeover took one call instead of four to seven, and a pre-fix result
   was correctly marked stale and re-run. The Handoff recovery was still 75
