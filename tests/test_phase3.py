@@ -368,3 +368,38 @@ def test_config_init_before_any_task_writes_to_the_project_root(tmp_path, monkey
     monkeypatch.chdir(tmp_path)
     assert main(["config", "--init"]) == 0
     assert (tmp_path / "handoff.toml").is_file()
+
+
+def test_cli_run_adopts_a_primary_configured_after_init(project, capsys, monkeypatch):
+    """init records the default primary; a config written afterwards chose another."""
+    import agent_handoff.cli as cli_mod
+
+    monkeypatch.setattr(AgentAdapter, "is_available", lambda self: True)
+    store = init(project)
+    assert store.read_task().source_agent == "codex"
+    (store.dir / "config.toml").write_text('primary = "claude-code"\nfallback = ["codex"]\n', encoding="utf-8")
+    started = []
+    monkeypatch.setattr(cli_mod, "supervised_run", lambda st, primary, chain, **kw: started.append(primary.name) or 0)
+
+    assert main(["run"]) == 0
+    task = store.read_task()
+    assert started == ["claude-code"]
+    assert (task.source_agent, task.fallback_agent) == ("claude-code", "codex")
+    selected = [e for e in store.iter_jsonl(store.events_file) if e["event"] == "agent_selected"]
+    assert selected[-1]["reason"] == "configured_primary" and selected[-1]["replaced"] == "codex"
+
+
+def test_cli_run_does_not_reassign_a_task_already_handed_on(project, capsys, monkeypatch):
+    import agent_handoff.cli as cli_mod
+
+    monkeypatch.setattr(AgentAdapter, "is_available", lambda self: True)
+    store = init(project)
+    task = store.read_task()
+    task.handoff_count = 1
+    task.attempted = ["claude-code"]
+    store.write_task(task)
+    (store.dir / "config.toml").write_text('primary = "claude-code"\nfallback = ["codex"]\n', encoding="utf-8")
+    monkeypatch.setattr(cli_mod, "supervised_run", lambda *a, **kw: 0)
+
+    main(["run"])
+    assert store.read_task().source_agent == "codex"

@@ -44,7 +44,9 @@ from agent_handoff.store import Store, StoreNotInitialized, find_root
 
 
 def _echo(msg: str = "") -> None:
-    print(msg)
+    # Flushed: piped to a log, the supervisor's own lines otherwise waited in
+    # the buffer until an agent printed -- `chain:` appeared only at the end.
+    print(msg, flush=True)
 
 
 def _relax_console_encoding() -> None:
@@ -475,6 +477,22 @@ def cmd_run(args: argparse.Namespace) -> int:
             log_event(store, "agent_deprioritised", agent=primary_name, detail=detail)
             log_event(store, "agent_selected", agent=primary.name, reason="health_or_availability")
         _echo("starting " + primary.name + " instead of " + primary_name + " (" + detail + ")")
+    else:
+        # The config lives in the directory `init` creates, so the usual order
+        # is init, then config -- and a primary chosen there disagreed with
+        # the source agent init had recorded from the defaults: run refused
+        # with "primary agent does not match task source agent". A task no
+        # agent has taken yet simply adopts the chosen primary.
+        task = store.read_task()
+        if task.source_agent != primary.name and task.handoff_count == 0 and not task.attempted:
+            with _lock(store.lock_file, "select-agent"):
+                task = store.read_task()
+                previous = task.source_agent
+                task.source_agent = primary.name
+                task.fallback_agent = chain[0].name
+                store.write_task(task)
+                log_event(store, "agent_selected", agent=primary.name, reason="configured_primary",
+                          replaced=previous)
 
     _echo("chain: " + " -> ".join([primary.name] + [a.name for a in chain]))
     protocol = cfg.checkpoint_protocol and not args.no_checkpoint_protocol

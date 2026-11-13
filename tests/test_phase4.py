@@ -222,7 +222,9 @@ def test_cli_agents_shows_the_actual_command_lines(project, capsys):
     assert main(["agents"]) == 0
     out = capsys.readouterr().out
     assert 'codex exec --sandbox workspace-write "<prompt>"' in out
-    assert 'claude -p --permission-mode acceptEdits "<prompt>"' in out
+    assert ('claude -p --allowedTools Bash(handoff *) Bash(python -m agent_handoff *) '
+            'PowerShell(handoff *) PowerShell(python -m agent_handoff *) '
+            '--permission-mode acceptEdits "<prompt>"') in out
     assert 'opencode run "<prompt>"' in out
     assert "1. codex" in out  # chain position
     assert "[agents.<name>]" in out

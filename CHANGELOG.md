@@ -13,6 +13,16 @@ is still below 1.0, so the interface may still change.
 
 ### Changed
 
+- A supervised Claude Code may run the handoff CLI. Its built-in command
+  line used `--permission-mode acceptEdits`, which allows edits but no
+  commands, so it could not run `handoff checkpoint` or `handoff tests`: in
+  a real supervised run it said they needed approval and recorded nothing,
+  and a failure mid-task would have handed over a diff and no checkpoint.
+  It now also passes `--allowedTools` for `handoff` and
+  `python -m agent_handoff`, through Bash or PowerShell, and nothing else;
+  allowing test commands is left to `[agents.claude-code]`. Checked against
+  Claude Code 2.1.317 by having it record a checkpoint under these rules.
+
 - A clean exit is no longer taken as a finished task. An agent can exit 0
   without doing what was asked — it gave up, ran out of turns, or stopped to
   ask a question nobody is there to answer — and `handoff run` marked every
@@ -78,6 +88,16 @@ is still below 1.0, so the interface may still change.
 
 ### Fixed
 
+- `handoff run` refused to start when the config named a different primary
+  than `handoff init` had recorded. The config lives in the directory
+  `init` creates, so the usual order is init, then config, and the task
+  kept the default source agent: run failed with "primary agent does not
+  match task source agent". A task no agent has taken yet now adopts the
+  configured primary, and the switch is logged; a task already handed on
+  is left as it is.
+- The supervisor's own lines (`chain: ...`) waited in the output buffer
+  when `handoff run` was piped to a log, and appeared only when the agent
+  next printed; they are now flushed.
 - On Windows, releasing the lock could fail while another process was
   waiting for it. A waiter opens the lock file to read who holds it, and
   Windows will not delete a file another handle has open: the release

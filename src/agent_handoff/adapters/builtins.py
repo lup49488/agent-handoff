@@ -47,12 +47,28 @@ BUILTIN_SPECS = (
         executable="claude",
         # Print mode cannot ask permission, so without this the agent
         # reports what it would have done instead of doing it.
-        exec_args=("-p", "--permission-mode", "acceptEdits", PROMPT),
+        #
+        # acceptEdits allows edits but no commands, so a supervised Claude
+        # Code could not run `handoff checkpoint` or `handoff tests`: it said
+        # they needed approval, recorded nothing, and a failure mid-task would
+        # have handed over a diff and no checkpoint. Only the handoff CLI is
+        # allowed besides; anything else, tests included, is the user's to
+        # allow in `[agents.claude-code]`. `--allowedTools` takes several
+        # values, so the option after it ends the list before the prompt.
+        exec_args=(
+            "-p",
+            "--allowedTools",
+            "Bash(handoff *)", "Bash(python -m agent_handoff *)",
+            "PowerShell(handoff *)", "PowerShell(python -m agent_handoff *)",
+            "--permission-mode", "acceptEdits",
+            PROMPT,
+        ),
         interactive_args=(PROMPT,),
         aliases=("claude",),
         # `claude --help`: "starts an interactive session by default, use
-        # -p/--print for non-interactive output".
-        verified="Claude Code 2.1.263, 2026-09-08",
+        # -p/--print for non-interactive output". The --allowedTools rules
+        # were checked by having it run `handoff checkpoint` under them.
+        verified="Claude Code 2.1.317, 2026-11-13",
     ),
     AgentSpec(
         name="gemini",
