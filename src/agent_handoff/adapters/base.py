@@ -27,6 +27,10 @@ class AgentAdapter(abc.ABC):
     aliases: Sequence[str] = ()
     #: executable looked up on PATH
     executable: str = ""
+    #: Commands this run lets the agent execute without asking, where its
+    #: command line has a permission list to extend. Set by the supervisor:
+    #: the configured done check.
+    allowed_commands: Sequence[str] = ()
 
     def __init__(self, root: Path, executable: Optional[str] = None):
         self.root = Path(root)

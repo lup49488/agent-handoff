@@ -119,6 +119,11 @@ more than half of the real messages, because real errors arrive as identifiers
 (`rate_limit_error`, `QuotaExceeded`) at least as often as sentences — and
 because Codex says "usage limit" where Claude Code says "session limit".
 
+The whole path — exhaustion recognised, task handed on, uncommitted work and
+checkpoint picked up, done check passed — has been run end to end with Codex
+stopped mid-task and Claude Code taking over; see the
+[failover drill](docs/failover-drill.md).
+
 A checkpoint is written at meaningful milestones, not after every tool call. It
 says what the objective is, what is done, what was decided, what is blocking,
 and what to do next. Git and the logs already show *what happened*; the

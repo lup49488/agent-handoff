@@ -11,6 +11,26 @@ is still below 1.0, so the interface may still change.
 
 ## [Unreleased]
 
+### Added
+
+- With a `done_check` configured, every agent in the chain is told it is
+  the command that decides whether the task is done, and an agent whose
+  command line lists the commands it may run (Claude Code's
+  `--allowedTools`) may run it without asking, through Bash or PowerShell.
+  In a real failover drill Claude Code took over and tried three times to
+  run the tests, was refused each time, and could only judge its
+  predecessor's work by reading it; it had also tried
+  `python -m unittest` where the check was `python -m unittest -q`, which a
+  permission for one does not cover. Run again with this, it verified the
+  work itself and finished in 31 seconds instead of 49.
+
+### Documented
+
+- A failover drill with real agents (`docs/failover-drill.md`, with the
+  wrapper and task under `benchmarks/failover_drill/`): Codex stopped with a
+  usage-limit message mid-task, Claude Code taking over through
+  `handoff resume`, the uncommitted work intact, the done check passing.
+
 ## [0.10.0] — 2026-11-13
 
 Supervised runs no longer take a clean exit as a finished task, and judge a

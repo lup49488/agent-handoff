@@ -16,6 +16,9 @@ from agent_handoff.adapters.spec import AgentSpec, merged
 
 _BUILTIN: Dict[str, AgentSpec] = {spec.name: spec for spec in BUILTIN_SPECS}
 
+#: The flag after which a command line lists the tools an agent may use.
+ALLOWED_TOOLS_FLAG = "--allowedTools"
+
 #: Config-supplied specs. Replaced wholesale by apply_config, never accumulated.
 _OVERLAY: Dict[str, AgentSpec] = {}
 
@@ -34,7 +37,18 @@ class SpecAdapter(AgentAdapter):
         return self.spec.argv(prompt, interactive=True)
 
     def exec_argv(self, prompt: str) -> List[str]:
-        return self.spec.argv(prompt, interactive=False)
+        args = self.spec.argv(prompt, interactive=False)
+        # An agent whose command line lists the commands it may run (Claude
+        # Code's --allowedTools) also gets this run's allowed commands, through
+        # either shell. In a real failover drill a Claude Code that took over
+        # tried three times to run the tests, was refused each time, and could
+        # only judge its predecessor's work by reading it.
+        if self.allowed_commands and ALLOWED_TOOLS_FLAG in args:
+            at = args.index(ALLOWED_TOOLS_FLAG) + 1
+            rules = [shell + "(" + command + ")" for command in self.allowed_commands
+                     for shell in ("Bash", "PowerShell")]
+            args[at:at] = rules
+        return args
 
     def resume_argv(self, instruction: str) -> List[str]:
         return self.interactive_argv(instruction)

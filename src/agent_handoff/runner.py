@@ -107,6 +107,23 @@ def initial_prompt(request: str, with_protocol: bool = True) -> str:
     return request + "\n\n---\n\n" + CHECKPOINT_PROTOCOL
 
 
+def done_check_note(done_check: Optional[str]) -> str:
+    """What the agent is told about the configured done check, if there is one.
+
+    It is the command the supervisor runs to decide whether the task is done,
+    and the one command beyond the handoff CLI an agent with a permission list
+    is allowed to run. An agent left to guess ran `python -m unittest` where
+    the check was `python -m unittest -q`, and the permission did not match.
+    """
+    if not done_check:
+        return ""
+    return (
+        "\n\n---\n\nThis task counts as done when `" + done_check + "` passes. Run exactly "
+        "that command to check your work; it is allowed without asking. Record its result "
+        "with `handoff tests`."
+    )
+
+
 #: How long a configured done check may run before it counts as failing.
 DONE_CHECK_TIMEOUT = 3600
 
@@ -557,7 +574,11 @@ def run(
 
     attempted: List[str] = []
     current = primary
-    process = current.start(initial_prompt(task.original_request, checkpoint_protocol), capture_output=True)
+    for adapter in [primary, *chain]:
+        adapter.allowed_commands = (done_check,) if done_check else ()
+    note = done_check_note(done_check)
+    process = current.start(initial_prompt(task.original_request, checkpoint_protocol) + note,
+                            capture_output=True)
     with _state_lock(store):
         log_event(store, "agent_started", agent=current.name)
 
@@ -624,7 +645,7 @@ def run(
         # walking the chain and only give up once nothing is left.
         for candidate in candidates:
             try:
-                process = candidate.start(RESUME_INSTRUCTION, capture_output=True)
+                process = candidate.start(RESUME_INSTRUCTION + note, capture_output=True)
             except AdapterError as exc:
                 with _state_lock(store):
                     log_event(
