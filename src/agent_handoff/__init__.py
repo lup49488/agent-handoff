@@ -11,6 +11,6 @@ remembers the work can lose it, nothing else here matters -- and enough memory
 of which agents are currently out of action to stop re-launching them.
 """
 
-__version__ = "0.9.2"
+__version__ = "0.10.0"
 
 HANDOFF_DIR = ".agent-handoff"

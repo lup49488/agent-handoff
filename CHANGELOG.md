@@ -11,6 +11,28 @@ is still below 1.0, so the interface may still change.
 
 ## [Unreleased]
 
+## [0.10.0] — 2026-11-13
+
+Supervised runs no longer take a clean exit as a finished task, and judge a
+stall by every sign of work rather than by output alone; a successor takes
+over with one command and can tell whether a recorded test result still
+holds. Upgrading:
+
+- Without a `done_check`, a clean exit that nothing verified now ends with
+  the task in the new status `exited`, where it used to read `done`. Set
+  `done_check` in the config (or pass `--done-check`) to have it verified.
+- Start a takeover with `handoff resume`; it replaces running `status`,
+  `verify`, reading `HANDOFF.md` and the diff separately.
+- Under `handoff run`, Claude Code may now run the `handoff` CLI without
+  asking, and nothing else it could not run before; override its command
+  line under `[agents.claude-code]` to change that.
+- The skill changed; reinstall it from `skills/agent-handoff/` wherever it
+  is installed.
+
+The recovery pilot, which ran alongside this work, found that on its tasks
+a handoff package cost a recovery more than it saved; see
+[the findings](docs/recovery-pilot-findings.md).
+
 ### Changed
 
 - A supervised Claude Code may run the handoff CLI. Its built-in command
@@ -55,16 +77,6 @@ is still below 1.0, so the interface may still change.
 
 ### Added
 
-- A test of two handoffs in a row (A -> B -> C) in a real repository, with
-  work at every hop: the third agent inherits both earlier agents'
-  uncommitted work, including an untracked file, the second agent's
-  checkpoint and test result marked current, and a package that verifies.
-
-- Pilot pair E-r06, checking `handoff resume` and test-result freshness:
-  the takeover took one call instead of four to seven, and a pre-fix result
-  was correctly marked stale and re-run. The Handoff recovery was still 75
-  seconds slower, mostly in its investigation.
-
 - `handoff resume`: take over in one read-only step. It runs the integrity
   check and prints the package rendered again against the live repository —
   checkpoint, repository state, diff, and whether the latest test result
@@ -86,11 +98,29 @@ is still below 1.0, so the interface may still change.
   learn what the package already said, because nothing told it whether the
   recorded result was taken on the code in front of it.
 
+- An agent skill in `skills/agent-handoff/`. One directory serves both Codex
+  and Claude Code: they read the same `SKILL.md`, `agents/openai.yaml` carries
+  the interface metadata Codex shows, and a plugin manifest lets Claude Code
+  install this repository directly. The skill exists because the CLI cannot
+  tell an agent *when* to track a task — that judgement, and the rule that
+  another agent is never launched unasked, live in the skill.
+
+- A test of two handoffs in a row (A -> B -> C) in a real repository, with
+  work at every hop: the third agent inherits both earlier agents'
+  uncommitted work, including an untracked file, the second agent's
+  checkpoint and test result marked current, and a package that verifies.
+
+- Failure rehearsals for the four interruption shapes the drills had skipped:
+  a silent stall, a journal line cut in half, a temp file from an unfinished
+  write, and a lock whose holder is gone (plus the live-run lock that recovery
+  must refuse to break).
+
+- pytest always prints the names of failing tests (`-rf`). One intermittent
+  failure in a full local run went unidentified because a quiet run reports
+  only a count, and six further runs did not reproduce it.
+
 ### Fixed
 
-- CI's Ubuntu job for Python 3.9 failed before running a test:
-  `ubuntu-latest` became Ubuntu 26.04, for which `setup-python` has no 3.9.
-  That job now runs on `ubuntu-24.04`; every other job is unchanged.
 - `handoff run` refused to start when the config named a different primary
   than `handoff init` had recorded. The config lives in the directory
   `init` creates, so the usual order is init, then config, and the task
@@ -98,9 +128,11 @@ is still below 1.0, so the interface may still change.
   match task source agent". A task no agent has taken yet now adopts the
   configured primary, and the switch is logged; a task already handed on
   is left as it is.
+
 - The supervisor's own lines (`chain: ...`) waited in the output buffer
   when `handoff run` was piped to a log, and appeared only when the agent
   next printed; they are now flushed.
+
 - On Windows, releasing the lock could fail while another process was
   waiting for it. A waiter opens the lock file to read who holds it, and
   Windows will not delete a file another handle has open: the release
@@ -109,10 +141,12 @@ is still below 1.0, so the interface may still change.
   Deleting the lock file now retries for up to a second. Found by the
   busy-lock test failing again on Windows CI (Python 3.9) after the fix
   below; a new test holds a real read handle across the release.
+
 - On Windows, a checkpoint or other state write could fail with "access
   denied" while a reader had the file open: Windows will not replace a file
   another handle has open, and `handoff resume`, `status` and watchers read
   `state.md`. The replace in `atomic_write` now retries for up to a second.
+
 - Taking the lock could fail with "Permission denied" when its holder
   released it at the wrong moment. On Windows an exclusive create that
   collides with an existing lock can be reported as access denied; the lock
@@ -121,6 +155,74 @@ is still below 1.0, so the interface may still change.
   error instead of taking the free lock. It now tries the open once more
   first. Found by the busy-lock test failing intermittently on Windows CI
   (Python 3.9), in three of six runs.
+
+- On Windows, an exclusive lock-file create can report an existing lock as
+  `PermissionError` instead of `FileExistsError`. The lock now treats that as
+  contention only when the lock path exists, preserving real permission errors.
+
+- Ctrl-C stopped `handoff run` but not its agent. Adapters start the agent
+  in its own session (POSIX) or process group (Windows) so its whole tree can
+  be killed, which also keeps a terminal's Ctrl-C from reaching it — Windows
+  disables Ctrl+C for a new group outright. Interrupting the supervisor left
+  the agent running unsupervised, spending quota and editing the repository.
+  The supervisor now kills the agent's tree before letting any interruption
+  through. `run_trial.py` had the same gap once it, too, began starting
+  targets in their own session on POSIX; it is closed the same way. Checked
+  on Linux with a real SIGINT.
+
+- On macOS, a worker could outlive the kill of the agent that started it.
+  When the agent had already exited but not been reaped, macOS refuses to
+  signal its process group (`PermissionError`), where Linux signals it; the
+  worker still in that group was left running. The leader is now reaped and
+  the group signalled again. Found because a new test built its worker from a
+  nested `-c` string whose newline became a real one: the leader died of a
+  SyntaxError, Linux killed the group anyway and the test passed by accident,
+  and macOS did not. Test scripts now go in files.
+
+- On Linux and macOS, `_kill_process_tree` reported a process killed without
+  killing it. `killpg` finds a group only when the process leads one; for a
+  process started outside its own session it raises ProcessLookupError, and
+  the previous change treated that as "the whole group had already gone".
+  Every POSIX CI job failed. It now falls back to the direct child and reports
+  the kill as partial. The benchmark harnesses also start their targets in
+  their own session on POSIX, as the product's adapters always have, so a
+  group kill reaches everything a target started.
+
+- `handoff run` could wait forever for an agent that had already exited. Its
+  output pipes close only when every process holding them has, so a worker the
+  agent left in the background — or a descendant a refused `taskkill` could not
+  reach — kept the supervisor joined on its readers, and the fallback agent
+  never started. Output is now read for at most ten seconds after the agent
+  exits, with what arrived by then kept. `_kill_process_tree` now reports
+  whether the whole tree is known to be gone.
+
+- `handoff status` died with `UnicodeEncodeError` when the console's code page
+  could not encode the task title — a Chinese title on a `cp932` console. Found
+  by running the tool that way: `init` had written the package correctly, so
+  the state existed and was unreadable at the same time, which is the failure
+  this tool exists to prevent. The CLI now relaxes the error policy on its own
+  streams, so an unrepresentable character degrades to `?` instead of taking
+  the command down. Only the policy is relaxed: forcing UTF-8 onto a legacy
+  console would garble the text it *can* display.
+
+  `checkpoint --show` failed the same way, and `runner`'s output pump would
+  have too — it writes a supervised agent's output straight to `sys.stdout`,
+  where the exception kills the thread rather than one command. The fix is at
+  the process entry point, which is the only place that covers both.
+
+- CI's Ubuntu job for Python 3.9 failed before running a test:
+  `ubuntu-latest` became Ubuntu 26.04, for which `setup-python` has no 3.9.
+  That job now runs on `ubuntu-24.04`; every other job is unchanged.
+
+- CI never ran on a push. The workflow triggered on `main`; the default branch
+  is `master`.
+
+### Benchmark harness and recovery pilot
+
+- Pilot pair E-r06, checking `handoff resume` and test-result freshness:
+  the takeover took one call instead of four to seven, and a pre-fix result
+  was correctly marked stale and re-run. The Handoff recovery was still 75
+  seconds slower, mostly in its investigation.
 
 - A recovery could be recorded as failing on one bad final check.
   E-baseline-r02 passed acceptance in its session, confirmed it with the
@@ -166,42 +268,6 @@ is still below 1.0, so the interface may still change.
 
 - `python benchmarks/recovery_pilot.py` failed on its first import; only
   `python -m benchmarks.recovery_pilot` worked.
-
-- Ctrl-C stopped `handoff run` but not its agent. Adapters start the agent
-  in its own session (POSIX) or process group (Windows) so its whole tree can
-  be killed, which also keeps a terminal's Ctrl-C from reaching it — Windows
-  disables Ctrl+C for a new group outright. Interrupting the supervisor left
-  the agent running unsupervised, spending quota and editing the repository.
-  The supervisor now kills the agent's tree before letting any interruption
-  through. `run_trial.py` had the same gap once it, too, began starting
-  targets in their own session on POSIX; it is closed the same way. Checked
-  on Linux with a real SIGINT.
-
-- On macOS, a worker could outlive the kill of the agent that started it.
-  When the agent had already exited but not been reaped, macOS refuses to
-  signal its process group (`PermissionError`), where Linux signals it; the
-  worker still in that group was left running. The leader is now reaped and
-  the group signalled again. Found because a new test built its worker from a
-  nested `-c` string whose newline became a real one: the leader died of a
-  SyntaxError, Linux killed the group anyway and the test passed by accident,
-  and macOS did not. Test scripts now go in files.
-
-- On Linux and macOS, `_kill_process_tree` reported a process killed without
-  killing it. `killpg` finds a group only when the process leads one; for a
-  process started outside its own session it raises ProcessLookupError, and
-  the previous change treated that as "the whole group had already gone".
-  Every POSIX CI job failed. It now falls back to the direct child and reports
-  the kill as partial. The benchmark harnesses also start their targets in
-  their own session on POSIX, as the product's adapters always have, so a
-  group kill reaches everything a target started.
-
-- `handoff run` could wait forever for an agent that had already exited. Its
-  output pipes close only when every process holding them has, so a worker the
-  agent left in the background — or a descendant a refused `taskkill` could not
-  reach — kept the supervisor joined on its readers, and the fallback agent
-  never started. Output is now read for at most ten seconds after the agent
-  exits, with what arrived by then kept. `_kill_process_tree` now reports
-  whether the whole tree is known to be gone.
 
 - The benchmark harnesses had the same wait, and worse consequences. A worker
   holding the pipes made `run_trial.py` sit out the whole wall-clock budget
@@ -270,8 +336,6 @@ is still below 1.0, so the interface may still change.
   consists of; the scan names whichever user skill was read rather than only
   agent-handoff.
 
-### Added
-
 - Recovery-pilot task E, an investigation whose findings are not on disk.
   Eight pairs on task D showed the package cannot help there: everything a
   session learns before the stop is reading four short files, which its
@@ -280,20 +344,24 @@ is still below 1.0, so the interface may still change.
   lose their sign, and refunds booked to their UTC date — with a misleading
   rounding note and TODO to rule out. Hidden evaluator rows (another store,
   refunds in every store) fail fixes that special-case store B.
+
 - The recovery pilot takes `--fixture`; plans record theirs, and pair and
   trial ids carry its letter (`E-r01`). A fixture can declare its public
   check in `public_check.txt` — task E's is `check_report.py`, not unittest.
   Plans without a fixture are read as task D.
+
 - Window measurements record the first edit to a file the solution changes.
   On task E it came 1.2 to 4.8 seconds after the first checkpoint in four
   sessions that finished in 30 to 48 seconds: both bugs were plain from one
   run of `debug_report.py` and a rule stated in `NOTES.md`, so task E, like
   task D, leaves no window for a package to help in.
+
 - Recovery-pilot task E v2. The offset bug stays; the tools stop printing it,
   the refund bug is gone, and the second cause is in a four-week ledger: two
   tills' exports re-imported, the same receipts under new ids. Evaluators
   check the ledger's hash and add a re-import at another store and two
   genuine look-alike sales. A fixture may widen its scope in `scope.txt`.
+
 - Task E v2 has a window: eight sessions spent 21 to 64 seconds between
   fixing the offset and finding the re-imported receipts, findings that were
   on disk nowhere. With the skill revised to checkpoint before every edit
@@ -303,12 +371,14 @@ is still below 1.0, so the interface may still change.
   Revised again to record findings when established, sessions checkpoint the
   narrowing within seconds of the offset fix but still write the decisive
   finding just before, or after, the fix it calls for.
+
 - Recovery-pilot task E v3: task E v2 with a nine-month, 1.8-million-row
   ledger, so that every run of the report takes 10 to 13 seconds and what an
   investigation establishes costs a successor real time to establish again.
   A fixture's `prepare.py` now writes what it cannot ship into each project
   copy; v3's generates the ledger and finance's figures from a fixed seed.
   The evaluators judge the code on v2's ledger, embedded, to stay fast.
+
 - Task E v3's window is two minutes wide (106 to 142 seconds from the offset
   fix to acceptance in four sessions), but two of the four packages there
   claimed `check_report.py` passed while it still reported two mismatches,
@@ -317,36 +387,33 @@ is still below 1.0, so the interface may still change.
   output, four more sessions made no false claim, three recorded the
   narrowing 22 to 24 seconds after the offset fix, and a stop at 100 seconds
   falls inside the investigation in all eight.
+
 - Schema-5 pilot plans stop the source session at 100 seconds, chosen from
   task E v3's eight window measurements; schema-4 plans (task D, D-r07 and
   D-r08) still read back as the 45-second rule they ran under.
+
 - Pilot pair E-r01, the first on task E v3: both sources stopped at 100
   seconds with the offset fixed; the Handoff package held only what the
   diff showed, and its recovery reached acceptance in 251.8 seconds against
   the Baseline's 133.3.
+
 - Pilot pairs E-r02 and E-r03. E-r02's package was again only the plan, and
   Handoff was slower (131.2 seconds against 84.7); E-r03's held the
   narrowing, and Handoff was faster (106.3 against 115.2).
+
 - Schema-6 pilot plans stop the source at 120 seconds. Under 100, both
   Handoff sources that fixed the offset late (E-r01, E-r02) were stopped
   before their next checkpoint could follow a ten-second check; schema-5
   plans still read back as 100.
+
 - Pilot pairs E-r04 and E-r05, at 120 seconds. Over five task E v3 pairs
   Handoff recovered slower in four; recoveries handed the narrowing still
   re-ran the checker to verify, and spent four to seven calls on the package
   itself. On this task the package costs more than it saves.
 
-- pytest always prints the names of failing tests (`-rf`). One intermittent
-  failure in a full local run went unidentified because a quiet run reports
-  only a count, and six further runs did not reproduce it.
-
 - `plan.py --withdraw` marks a pending row that will never run, with the
   reason. Used on the four rows the `post-actions-r04` plan was left with,
   whose ids the contaminated v0.3 cohort had already used.
-
-- On Windows, an exclusive lock-file create can report an existing lock as
-  `PermissionError` instead of `FileExistsError`. The lock now treats that as
-  contention only when the lock path exists, preserving real permission errors.
 
 - Codex's pre-launch skill check searched every rendered message for a skill's
   bare name, so unrelated session-context mentions could block a trial. It now
@@ -413,8 +480,6 @@ is still below 1.0, so the interface may still change.
   trials; it also prints times to the millisecond rather than as
   `37.617000000000004`.
 
-### Added
-
 - Cohort plans can restrict the pre-registered task/snapshot cells with
   repeatable `--task` and `--snapshot` filters, while recording those choices
   in the plan file. Defaults still include every task and snapshot.
@@ -441,8 +506,6 @@ is still below 1.0, so the interface may still change.
   sourced acceptance evaluation, final acceptance logs, a pre-registered scope
   audit, and separate first-completion and process-exit timings. Editing a
   workspace `acceptance.py` can no longer make a trial pass.
-
-### Fixed
 
 - Task B could never produce a completed trial. Its pre-registered edit
   surface allowed only `api.py`, but the source agent's own interrupted work —
@@ -503,8 +566,6 @@ is still below 1.0, so the interface may still change.
 
 - `task-b`'s 60% snapshot had no next step — the only one of nine missing it.
 
-### Added
-
 - `benchmarks/plan.py` prints a cohort's run order with arm order randomised
   per cell, as the design requires. Seeded by a string rather than `hash()`,
   because Python randomises string hashing per process and a plan that differs
@@ -516,37 +577,6 @@ is still below 1.0, so the interface may still change.
   telemetry-capable harness, and the design forbids estimating them. A target
   that outruns its budget has its whole process tree killed, so a timed-out
   trial stops spending quota.
-
-- Failure rehearsals for the four interruption shapes the drills had skipped:
-  a silent stall, a journal line cut in half, a temp file from an unfinished
-  write, and a lock whose holder is gone (plus the live-run lock that recovery
-  must refuse to break).
-
-- `handoff status` died with `UnicodeEncodeError` when the console's code page
-  could not encode the task title — a Chinese title on a `cp932` console. Found
-  by running the tool that way: `init` had written the package correctly, so
-  the state existed and was unreadable at the same time, which is the failure
-  this tool exists to prevent. The CLI now relaxes the error policy on its own
-  streams, so an unrepresentable character degrades to `?` instead of taking
-  the command down. Only the policy is relaxed: forcing UTF-8 onto a legacy
-  console would garble the text it *can* display.
-
-  `checkpoint --show` failed the same way, and `runner`'s output pump would
-  have too — it writes a supervised agent's output straight to `sys.stdout`,
-  where the exception kills the thread rather than one command. The fix is at
-  the process entry point, which is the only place that covers both.
-
-- CI never ran on a push. The workflow triggered on `main`; the default branch
-  is `master`.
-
-### Added
-
-- An agent skill in `skills/agent-handoff/`. One directory serves both Codex
-  and Claude Code: they read the same `SKILL.md`, `agents/openai.yaml` carries
-  the interface metadata Codex shows, and a plugin manifest lets Claude Code
-  install this repository directly. The skill exists because the CLI cannot
-  tell an agent *when* to track a task — that judgement, and the rule that
-  another agent is never launched unasked, live in the skill.
 
 ### Documented
 
