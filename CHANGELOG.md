@@ -88,6 +88,9 @@ is still below 1.0, so the interface may still change.
 
 ### Fixed
 
+- CI's Ubuntu job for Python 3.9 failed before running a test:
+  `ubuntu-latest` became Ubuntu 26.04, for which `setup-python` has no 3.9.
+  That job now runs on `ubuntu-24.04`; every other job is unchanged.
 - `handoff run` refused to start when the config named a different primary
   than `handoff init` had recorded. The config lives in the directory
   `init` creates, so the usual order is init, then config, and the task
