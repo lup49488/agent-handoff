@@ -33,17 +33,29 @@ NEXT = "Next Suggested Step"
 SECTION_ORDER = (OBJECTIVE, COMPLETED, DECISIONS, PROBLEM, NEXT)
 
 #: Given to the working agent so it maintains the checkpoint itself.
-CHECKPOINT_PROTOCOL = """When you complete a meaningful milestone -- a subtask finished, a test
-status change, an architectural decision, or before a long stretch of work --
-briefly update the handoff checkpoint:
+#: What a supervised agent is told about checkpointing. It carries the rules
+#: the recovery pilot arrived at for the skill, because an agent without the
+#: skill installed has only this: in a failover drill a Claude Code given the
+#: earlier "at a meaningful milestone" wording read the code, made its first
+#: edit without a checkpoint, was stopped, and handed over a diff and nothing
+#: about what it had found or meant to do next.
+CHECKPOINT_PROTOCOL = """You may be stopped at any moment, and whoever continues has only the
+repository and the handoff checkpoint. Keep the checkpoint current:
+
+- Before your first edit: once you have read the code and chosen an
+  approach, record which files matter, the approach and why, and the
+  change you are about to make.
+- When a run or a reading settles something -- a cause confirmed or ruled
+  out, what still fails after a fix -- record it then, with the evidence.
+- After a test run, record its actual result once you have read the
+  output: handoff tests "<command>" --exit-code <code> --summary "..."
 
     handoff checkpoint --objective "..." --done "..." --decision "..." \\
                        --problem "..." --next "..."
 
-Keep it under {budget} tokens. Record only the decision, the progress, the
-current problem and the next step -- not a summary of our conversation, and
-not anything already visible in the git diff. Do not update it after every
-tool call.""".format(budget=TOKEN_BUDGET)
+Keep it under {budget} tokens. Record what the diff does not show -- what
+you found, why, and what is next -- not a summary of our conversation.
+Do not update it after every tool call.""".format(budget=TOKEN_BUDGET)
 
 
 def estimate_tokens(text: str) -> int:

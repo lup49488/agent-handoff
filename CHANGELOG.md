@@ -11,6 +11,18 @@ is still below 1.0, so the interface may still change.
 
 ## [Unreleased]
 
+### Changed
+
+- The checkpoint protocol `handoff run` gives a supervised agent now
+  carries the skill's rules: checkpoint before the first edit, record a
+  finding when it is settled, and record a test result once its output has
+  been read. It said only to checkpoint "when you complete a meaningful
+  milestone", and an agent without the skill installed has nothing else: in
+  a failover drill a Claude Code edited before checkpointing, was stopped,
+  and handed over a diff and no checkpoint. With the new protocol it
+  checkpointed its diagnosis and plan for all five fixes before its first
+  edit.
+
 ### Added
 
 - With a `done_check` configured, every agent in the chain is told it is
@@ -29,7 +41,10 @@ is still below 1.0, so the interface may still change.
 - A failover drill with real agents (`docs/failover-drill.md`, with the
   wrapper and task under `benchmarks/failover_drill/`): Codex stopped with a
   usage-limit message mid-task, Claude Code taking over through
-  `handoff resume`, the uncommitted work intact, the done check passing.
+  `handoff resume`, the uncommitted work intact, the done check passing;
+  and in reverse, Claude Code stopped on its first edit with the work
+  half-done and Codex finishing it. The wrapper, now `drill_agent.py`,
+  drives either agent.
 
 ## [0.10.0] — 2026-11-13
 

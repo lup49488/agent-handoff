@@ -16,11 +16,13 @@ of which seven fail and one errors. The prompt asks for the tests to pass
 without changing them.
 
 Waiting for a real quota exhaustion is not practical, so the primary is a
-wrapper, `benchmarks/failover_drill/drill_codex.py`. It starts the real
-Codex exactly as the built-in adapter does and passes its output through;
-once Codex first changes `stats.py` or `report.py` it waits eight seconds,
-kills Codex's whole process tree, prints the usage-limit message Codex
-itself prints, and exits 1. To the supervisor that is a real exhaustion.
+wrapper, `benchmarks/failover_drill/drill_agent.py`. It starts the real
+agent exactly as the built-in adapter does, with the project's done check
+allowed, and passes its output through; once the agent first changes
+`stats.py` or `report.py` it waits `--grace` seconds (eight by default),
+kills the agent's whole process tree, prints the usage-limit message that
+agent itself prints, and exits 1. To the supervisor that is a real
+exhaustion.
 
 ```text
 cp -r benchmarks/failover_drill/project <scratch>/drill && cd <scratch>/drill
@@ -38,8 +40,12 @@ done_check = "python -m unittest -q"
 
 [agents.codex-drill]
 executable = "python"
-exec = ["<checkout>/benchmarks/failover_drill/drill_codex.py", "{prompt}"]
+exec = ["<checkout>/benchmarks/failover_drill/drill_agent.py", "codex", "{prompt}"]
 ```
+
+For the reverse direction, `primary = "claude-drill"` and
+`fallback = ["codex"]`, with
+`exec = [".../drill_agent.py", "claude-code", "--grace", "0", "{prompt}"]`.
 
 then `handoff run`. The drill spends a little of both agents' quota.
 
@@ -93,9 +99,52 @@ the handoff against 49 in the first run. The task ended `done` after one
 handoff, with the successor's own verified result as the latest test
 record.
 
-## What the drill does not show
+## Claude Code to Codex, stopped mid-change
 
-It is one task, small enough that Codex finished the work before it was
-stopped; the successor's part was to verify and record, not to continue
-half-finished code. A drill that stops the primary mid-change, and one with
-Claude Code as the primary and Codex taking over, are the obvious next ones.
+The first two runs left the successor nothing to continue: Codex fixes all
+five bugs in one patch, so by the time it was stopped the work was done.
+Claude Code edits one file at a time, so with it as the primary and the
+wrapper stopping it on its first edit (`--grace 0`), the work is genuinely
+half-done. Codex takes over. Run twice on 2026-11-15, the second time with
+the change the first led to.
+
+**First run.** Claude Code read the four files, fixed the median in
+`stats.py` at 18.4 seconds, and was stopped at 19.0, with four of the five
+bugs still in place. Codex took over, kept that fix, made the other four,
+ran the done check itself, recorded the passing result and checkpointed; the
+task ended `done` after one handoff, 67 seconds after the handoff.
+
+But the package's checkpoint read "None recorded": Claude Code had edited
+before checkpointing, and never ran a `handoff` command at all. It has no
+agent-handoff skill installed on this machine — Codex does — so all it had
+was the checkpoint protocol `handoff run` appends to the task, and that
+still said to checkpoint "when you complete a meaningful milestone". The
+rules the recovery pilot had arrived at — checkpoint before the first edit,
+record findings when they are settled, record results from their output —
+were in the skill and nowhere else. Codex recovered anyway, because one
+reading of the code was enough here; on a task where the first agent's
+reading is expensive, the successor would have had to repeat it.
+
+**Second run.** The protocol now carries those rules. Claude Code read the
+files and, at 28 seconds, before touching anything, checkpointed what it had
+found and meant to do: all five fixes, each with its reason, and "apply the
+5 fixes, run python -m unittest -q" as the next step. It edited `stats.py`
+at 31.8 seconds and was stopped at 32.3. Codex took over with that plan,
+completed it and verified it, and the task ended `done` 47 seconds after
+the handoff.
+
+| | First run | Second run |
+|---|---|---|
+| Checkpoint before Claude Code's first edit | none | diagnosis and plan for all five fixes |
+| Claude Code stopped at | 19.0 s, one fix made | 32.3 s, one fix made |
+| Codex kept the fix and made the rest | yes | yes |
+| Handoff to acceptance | 67 s | 47 s |
+
+## What the drills do not show
+
+They are one small task, run once or twice in each direction; the times
+are indications, not measurements. In every run one reading of the code
+was enough for the successor to finish, so they show that the path works
+and that the package carries what it should, not how much it saves on work
+whose findings are expensive to repeat — the question the recovery pilot
+studied, with the answer in its [findings](recovery-pilot-findings.md).

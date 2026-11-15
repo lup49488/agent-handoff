@@ -124,7 +124,9 @@ checkpoint picked up, done check passed — has been run end to end with Codex
 stopped mid-task and Claude Code taking over; see the
 [failover drill](docs/failover-drill.md).
 
-A checkpoint is written at meaningful milestones, not after every tool call. It
+A checkpoint is written at meaningful milestones, not after every tool call —
+the first before the first edit, since an agent stopped then would otherwise
+hand over a diff and nothing about what it found. It
 says what the objective is, what is done, what was decided, what is blocking,
 and what to do next. Git and the logs already show *what happened*; the
 checkpoint is the only place that records **why**.

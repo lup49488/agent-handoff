@@ -252,3 +252,12 @@ def test_cli_status_reports_checkpoint_age(repo, capsys):
 def test_checkpoint_is_not_mistaken_for_an_agent_shorthand(repo):
     # `checkpoint` must reach its own subparser, not the `switch` rewrite.
     assert main(["checkpoint", "--objective", "Fix the race."]) == 0
+
+
+def test_a_supervised_agent_is_told_to_checkpoint_before_its_first_edit():
+    """An agent without the skill has only this; told "at a milestone", it edited first."""
+    from agent_handoff.checkpoint import CHECKPOINT_PROTOCOL, TOKEN_BUDGET, estimate_tokens
+
+    assert "Before your first edit" in CHECKPOINT_PROTOCOL
+    assert "handoff tests" in CHECKPOINT_PROTOCOL
+    assert estimate_tokens(CHECKPOINT_PROTOCOL) < TOKEN_BUDGET
