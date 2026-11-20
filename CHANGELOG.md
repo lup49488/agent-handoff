@@ -11,6 +11,23 @@ is still below 1.0, so the interface may still change.
 
 ## [Unreleased]
 
+## [0.11.0] — 2026-11-20
+
+Supervised agents are now given the skill's checkpoint rules and told the
+done check, which Claude Code may run without asking; a failover drill with
+real agents, run in both directions, has taken the whole path end to end.
+Upgrading:
+
+- A supervised agent now checkpoints before its first edit, and records
+  findings and test results as it reads them, so expect its first
+  checkpoint earlier than before. Nothing needs configuring.
+- With a `done_check` configured, every agent in the chain is told the
+  command, and Claude Code may run exactly that command without asking,
+  through Bash or PowerShell, and nothing else it could not run before. An
+  override under `[agents.claude-code]` gets the permission only if its
+  command line keeps `--allowedTools`.
+- The skill is unchanged; there is nothing to reinstall.
+
 ### Changed
 
 - The checkpoint protocol `handoff run` gives a supervised agent now
