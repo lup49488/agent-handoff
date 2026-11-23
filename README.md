@@ -274,9 +274,9 @@ python -m pytest -q
 ```
 
 The test configuration hides the real coding-agent executables from `PATH`, so
-no test can spend your quota or start a live agent by accident. On Python 3.9
-and 3.10 there is no `tomllib`, so the built-in TOML reader is what loads every
-config; it is checked against the reference implementation wherever that exists.
+no test can spend your quota or start a live agent by accident. On Python 3.10
+there is no `tomllib`, so the built-in TOML reader is what loads every config;
+it is checked against the reference implementation wherever that exists.
 
 ## License
 

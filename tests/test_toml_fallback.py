@@ -1,7 +1,7 @@
 """The built-in TOML reader, checked against the real one.
 
-Python 3.9 and 3.10 have no `tomllib`, so on those versions this reader *is*
-how every config is loaded. It went untested there for a long time and was
+Python 3.10 has no `tomllib`, so on that version this reader *is* how every
+config is loaded. It went untested there for a long time and was
 wrong in two ways that only Windows users and anyone with a comma in a command
 line would ever hit.
 

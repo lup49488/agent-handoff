@@ -99,7 +99,7 @@ class ConfigError(RuntimeError):
 
 
 # -- a very small TOML reader ----------------------------------------------
-# Used only on Python 3.9/3.10, which have no tomllib. It covers the subset
+# Used only on Python 3.10, which has no tomllib. It covers the subset
 # this file needs -- strings, booleans, integers and string arrays, inline or
 # spread over lines -- and refuses anything else rather than guessing.
 

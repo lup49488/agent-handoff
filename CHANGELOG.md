@@ -11,6 +11,14 @@ is still below 1.0, so the interface may still change.
 
 ## [Unreleased]
 
+### Changed
+
+- Python 3.10 or later is now required. Python 3.9 reached end of life in
+  October 2025, and GitHub's current Ubuntu runner no longer offers it: CI
+  kept it only by pinning that job to Ubuntu 24.04. Nothing in the code
+  depended on 3.9; the built-in TOML reader is still what loads the config
+  on 3.10, which has no `tomllib`.
+
 ## [0.12.0] — 2026-11-22
 
 A review of the supervised-run changes since 0.9.2, and Windows CI, found
