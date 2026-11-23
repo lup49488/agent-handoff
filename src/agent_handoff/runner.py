@@ -546,7 +546,27 @@ def _drain(
             probe = None
     probe_every = min(ACTIVITY_PROBE_SECONDS, stall_timeout / 2) if stall_timeout else None
     last_probe = [0.0]
-    cpu_only_too_long = False
+    cpu_only_too_long = [False]
+    extra_look = [False]
+
+    def look(at: float) -> bool:
+        """Probe once; True if it found work, which restarts the clock."""
+        last_probe[0] = at
+        try:
+            found = probe()
+        except Exception:
+            found = ""  # a failed look is no evidence either way
+        cpu_only_too_long[0] = (found == "cpu"
+                                and at - hard_activity[0] > stall_timeout * CPU_ONLY_LIMIT)
+        if found == "cpu" and not cpu_only_too_long[0]:
+            # As of after the look, which can itself take a second.
+            activity[0] = time.monotonic()
+            return True
+        if found and found != "cpu":
+            touch()
+            return True
+        return False
+
     try:
         while True:
             try:
@@ -556,29 +576,26 @@ def _drain(
                 now = time.monotonic()
                 if (probe is not None and probe_every is not None
                         and now - activity[0] >= probe_every and now - last_probe[0] >= probe_every):
-                    last_probe[0] = now
-                    try:
-                        found = probe()
-                    except Exception:
-                        found = ""  # a failed look is no evidence either way
-                    cpu_only_too_long = (found == "cpu"
-                                         and now - hard_activity[0] > stall_timeout * CPU_ONLY_LIMIT)
-                    if found == "cpu" and not cpu_only_too_long:
-                        # As of after the look, which can itself take a second.
-                        activity[0] = time.monotonic()
-                        continue
-                    if found and found != "cpu":
-                        touch()
+                    if look(now):
                         continue
                 silence = time.monotonic() - activity[0]
-                # Give the CPU one more look if it has not yet been judged --
-                # with a short timeout the first reading can land at the
-                # deadline -- but never more than one probe interval longer.
-                if (stall_timeout and probe_every is not None and silence > stall_timeout
-                        and not getattr(probe, "judged", True)
-                        and silence <= stall_timeout + probe_every):
-                    continue
-                if stall_timeout and (silence > stall_timeout or cpu_only_too_long):
+                # CPU use takes two readings to judge. If the deadline came
+                # before the second, take it now -- once, however long it
+                # takes. A fixed grace was not enough: on Windows CI one
+                # reading took over a second, the grace ran out before the
+                # second, and an agent using a core was called stalled.
+                if (stall_timeout and probe is not None and silence > stall_timeout
+                        and not cpu_only_too_long[0] and not extra_look[0]
+                        and not getattr(probe, "judged", True)):
+                    extra_look[0] = True
+                    if look(time.monotonic()):
+                        continue
+                    silence = time.monotonic() - activity[0]
+                # A look can take seconds; the agent may have finished during it.
+                if process.poll() is not None:
+                    exit_code = process.returncode
+                    break
+                if stall_timeout and (silence > stall_timeout or cpu_only_too_long[0]):
                     stalled = True
                     _kill_process_tree(process)
                     # Process-tree tools can fail or return before the direct

@@ -27,6 +27,13 @@ is still below 1.0, so the interface may still change.
   allowed more widely than configured, and brackets could make the rule
   malformed. Such a command is no longer added, and the agent is told it may
   need approval.
+- An agent using a core could be called stalled when reading the CPU was
+  slow. CPU use takes two readings to judge, and if the deadline came before
+  the second, the grace for taking it was a fixed interval; on Windows CI
+  one reading took over a second, the grace ran out, and a computing agent
+  was handed on. The second reading is now taken at the deadline, once,
+  however long it takes. An agent that finishes during a slow look is no
+  longer called stalled either: the supervisor checks it has exited first.
 - CPU use could keep a wedged agent alive indefinitely: a watcher, language
   server or MCP server it had started kept using a core, the stall clock was
   reset at every look, and the task was never handed on. CPU use alone now

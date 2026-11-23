@@ -140,3 +140,37 @@ def test_ps_cumulative_times_are_read_in_every_shape():
     assert runner._ps_time("01:02:03") == 3723
     assert runner._ps_time("2-00:00:01") == 172801
     assert runner._ps_time("0:00.50") == 0.5
+
+
+def test_a_slow_cpu_reading_does_not_turn_into_a_stall(store, monkeypatch):
+    """Windows CI: reading the CPU took over a second, and the agent was called stalled.
+
+    The first reading only sets the baseline. When it ran past the deadline,
+    the grace for a second reading was a fixed interval, which a slow reading
+    used up before the second one was taken.
+    """
+    import time
+
+    real = runner._cpu_seconds_of_tree
+
+    def slow(pid):
+        time.sleep(2.5)
+        return real(pid)
+
+    monkeypatch.setattr(runner, "_cpu_seconds_of_tree", slow)
+    assert ran_without_handoff(store, SILENT_BUT_COMPUTING.replace("+ 5", "+ 9"))
+
+
+def test_an_agent_that_exits_during_a_slow_look_is_not_called_stalled(store):
+    """The look can take seconds; an agent finishing meanwhile has not stalled."""
+    import time
+
+    process = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(1.5)"],
+                               stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+
+    def slow_and_idle():
+        time.sleep(3)
+        return ""
+
+    code, _, _, stalled = runner._drain(store, process, stall_timeout=1, activity_probe=slow_and_idle)
+    assert code == 0 and not stalled
