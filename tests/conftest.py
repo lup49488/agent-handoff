@@ -25,8 +25,15 @@ def never_launch_a_real_agent(monkeypatch):
 
 @pytest.fixture(autouse=True)
 def isolated_home(tmp_path_factory, monkeypatch):
-    """Agent health is per-user state; tests must never touch the real file."""
+    """Agent health is per-user state; tests must never touch the real file.
+
+    The same goes for where agents keep their skills: whether this machine's
+    Codex or Claude Code has the agent-handoff skill must not change what
+    `handoff agents` or `handoff init` print under test.
+    """
     monkeypatch.setenv(health.ENV_HOME, str(tmp_path_factory.mktemp("handoff-home")))
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path_factory.mktemp("codex-home")))
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path_factory.mktemp("claude-home")))
 
 
 @pytest.fixture(autouse=True)

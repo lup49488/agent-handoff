@@ -258,6 +258,13 @@ Either way the skill assumes `handoff` is on `PATH`. If it is not, it falls
 back to running the module from a source checkout, as [Install](#install)
 describes.
 
+`handoff agents` and `handoff init` say when an installed agent has no
+skill, or — when `handoff` runs from a checkout — a copy older than the
+checkout's; `handoff agents -v` shows where each one was found. Without the
+skill an agent you work with directly never checkpoints, and a package it
+leaves holds only the diff. Under `handoff run` the supervisor gives it the
+checkpoint rules itself.
+
 ## Development
 
 ```bash

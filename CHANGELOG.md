@@ -11,6 +11,21 @@ is still below 1.0, so the interface may still change.
 
 ## [Unreleased]
 
+### Added
+
+- `handoff agents` and `handoff init` say when an installed agent has no
+  agent-handoff skill, with how to install it, and when `handoff` runs from
+  a checkout, when an installed copy differs from the checkout's;
+  `handoff agents -v` shows where each agent's skill was found. Codex is
+  looked for in `$CODEX_HOME` (or `~/.codex`) and the project's `.codex/`,
+  Claude Code in `$CLAUDE_CONFIG_DIR` (or `~/.claude`), the project's
+  `.claude/`, and an `agent-handoff@...` entry in `enabledPlugins`. Without
+  the skill an agent worked with directly never checkpoints: in a failover
+  drill Claude Code, which had none on that machine, edited before
+  checkpointing and handed over only a diff, and nothing had said the skill
+  was missing. Other agents have no known skill location and are reported
+  as unknown, never as missing.
+
 ## [0.11.0] — 2026-11-20
 
 Supervised agents are now given the skill's checkpoint rules and told the

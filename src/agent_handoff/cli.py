@@ -27,6 +27,7 @@ from agent_handoff import health as health_mod
 from agent_handoff import integrity as integrity_mod
 from agent_handoff import lock as lock_mod
 from agent_handoff import sessions as sessions_mod
+from agent_handoff import skillcheck
 from agent_handoff import testresult
 from agent_handoff.adapters import AdapterError
 from agent_handoff.config import ConfigError
@@ -170,6 +171,11 @@ def cmd_init(args: argparse.Namespace) -> int:
     _echo("  source  : " + task.source_agent)
     _echo("  fallback: " + task.fallback_agent)
     _echo("  chain   : " + " -> ".join(cfg.chain))
+    for name in dict.fromkeys([task.source_agent, task.fallback_agent]):
+        adapter = registry.get(name, store.root)
+        if adapter.is_available() and skillcheck.status(name, store.root)[0] in (
+                skillcheck.MISSING, skillcheck.OUTDATED):
+            _echo(_skill_note(name, store.root))
     if not git.is_repo:
         _echo("  note    : not a git repository -- deterministic state will be thin")
     return 0
@@ -728,10 +734,15 @@ def cmd_agents(args: argparse.Namespace) -> int:
         chain = []
 
     width = max(len(name) for name in registry.agent_names())
+    without_skill = []
     for name in registry.agent_names():
         adapter = registry.get(name, root)
         spec = adapter.spec
-        marks = "ok " if adapter.is_available() else "-- "
+        available = adapter.is_available()
+        skill_state, skill_detail = skillcheck.status(name, root)
+        if available and skill_state in (skillcheck.MISSING, skillcheck.OUTDATED):
+            without_skill.append(name)
+        marks = "ok " if available else "-- "
         position = str(chain.index(name) + 1) + "." if name in chain else "  "
         _echo(marks + position + " " + name.ljust(width) + "  " + spec.display(interactive=False))
         if args.verbose:
@@ -743,6 +754,12 @@ def cmd_agents(args: argparse.Namespace) -> int:
             if spec.note:
                 details.append(spec.note)
             _echo(" " * (width + 8) + "(" + "; ".join(details) + ")")
+            if skill_state == skillcheck.INSTALLED:
+                _echo(" " * (width + 8) + "skill: installed (" + skill_detail + ")")
+            elif skill_state == skillcheck.MISSING:
+                _echo(" " * (width + 8) + "skill: not installed -- " + skill_detail)
+            elif skill_state == skillcheck.OUTDATED:
+                _echo(" " * (width + 8) + "skill: outdated -- " + skill_detail)
 
     if not args.verbose:
         _echo("")
@@ -751,7 +768,21 @@ def cmd_agents(args: argparse.Namespace) -> int:
         if unverified:
             _echo("Unverified command lines: " + ", ".join(sorted(unverified)) + ".")
         _echo("Wrong command line for your version? Override it under [agents.<name>].")
+    for name in without_skill:
+        _echo(_skill_note(name, root))
     return 0
+
+
+def _skill_note(name: str, root: Path) -> str:
+    """Why an installed agent without a current skill matters, and how to fix it."""
+    state, detail = skillcheck.status(name, root)
+    if state == skillcheck.OUTDATED:
+        return "note: " + name + "'s agent-handoff skill is older than this version: " + detail
+    return (
+        "note: " + name + " has no agent-handoff skill installed, so working with it directly "
+        "it will not checkpoint and a package it leaves holds only the diff (`handoff run` "
+        "tells it the rules itself). Install: " + detail
+    )
 
 
 # -- parser ----------------------------------------------------------------

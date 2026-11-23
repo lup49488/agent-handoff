@@ -182,6 +182,11 @@ cp -r skills/agent-handoff ~/.codex/skills/agent-handoff
 两种方式都假定 `handoff` 已在 `PATH` 上；若不在，Skill 会按[安装](#安装)一节
 所述从源码目录运行模块。
 
+如果某个已安装的 Agent 没有装 Skill，或者（`handoff` 从源码目录运行时）装的版本比源码里的旧，
+`handoff agents` 和 `handoff init` 都会提示；`handoff agents -v` 会显示每个 Agent 的 Skill 装在哪里。
+没有 Skill 时，直接使用的 Agent 不会写检查点，它留下的交接包里只有 diff；在 `handoff run`
+监督下，监督程序会自己把检查点规则告诉它。
+
 ## 开发
 
 ```bash
