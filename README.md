@@ -74,9 +74,11 @@ and starts the next available agent: on a nonzero exit, or the configured
 silence timeout. A clean exit is not taken on trust, since an agent can exit 0
 without finishing. With a `done_check` configured (or `--done-check`), the
 check is run: if it passes the task is done, and if it fails the next agent
-continues. Without one, the task is done only if the latest recorded test
-result passed on the code as it is now; otherwise it is reported as exited,
-unverified.
+continues. A check that cannot run at all — its program not found, or past
+its hour-long timeout — ends the run as exited, unverified, rather than
+handing a check no agent could pass down the chain. Without one, the task is
+done only if the latest recorded test result passed on the code as it is
+now; otherwise it is reported as exited, unverified.
 
 Working with an agent interactively instead? Track the task the same way, and
 hand it over when the agent stops:

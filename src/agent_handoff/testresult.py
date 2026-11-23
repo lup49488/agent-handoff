@@ -25,6 +25,14 @@ from agent_handoff.store import Store, atomic_write
 #: How much of a test command's output a record keeps.
 OUTPUT_LINES = 30
 
+#: Untracked files are hashed in pieces of this size, never read whole: a
+#: dataset or build output nobody ignored would otherwise be held in memory
+#: by every `status`, `pack`, `verify` and `resume`.
+_CHUNK = 1 << 20
+
+#: Passed for `current` when the caller has not computed the tree itself.
+_NOT_GIVEN = object()
+
 CURRENT = "current"
 STALE = "stale"
 UNKNOWN = "unknown"
@@ -47,7 +55,9 @@ def tree(root: Path) -> Optional[Dict[str, str]]:
     for name in sorted(n for n in listing.split("\0") if n and not gitinfo._is_self(n)):
         digest.update(b"\0untracked\0" + name.encode("utf-8", errors="replace") + b"\0")
         try:
-            digest.update((root / name).read_bytes())
+            with open(root / name, "rb") as handle:
+                for piece in iter(lambda: handle.read(_CHUNK), b""):
+                    digest.update(piece)
         except OSError:
             digest.update(b"<unreadable>")
     return {"head": head.strip(), "changes": digest.hexdigest()}
@@ -81,15 +91,19 @@ def current_pass(store: Store) -> bool:
                 and freshness(store.root, record)[0] == CURRENT)
 
 
-def freshness(root: Path, record: Dict[str, object]) -> Tuple[str, str]:
-    """`(state, sentence)` for a recorded result against the code as it is now."""
+def freshness(root: Path, record: Dict[str, object], current=_NOT_GIVEN) -> Tuple[str, str]:
+    """`(state, sentence)` for a recorded result against the code as it is now.
+
+    `current` is `tree(root)` when the caller already has it -- `handoff
+    resume` checks the package and renders it, and hashed the tree twice.
+    """
     recorded = record.get("tree")
     if not isinstance(recorded, dict):
         return UNKNOWN, (
             "Recorded without the code it ran on, so whether it still holds is "
             "unknown: re-run it before relying on it."
         )
-    now = tree(root)
+    now = tree(root) if current is _NOT_GIVEN else current
     if now is None:
         return UNKNOWN, "The code it ran on cannot be compared here: re-run it before relying on it."
     then_head = str(recorded.get("head") or "")

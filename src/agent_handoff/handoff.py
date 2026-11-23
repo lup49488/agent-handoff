@@ -78,7 +78,7 @@ def _events_block(records: List[Dict]) -> str:
 
 def render(
     store: Store, reason: str = "manual_handoff", target_agent: Optional[str] = None,
-    git: Optional[GitState] = None,
+    git: Optional[GitState] = None, tree=testresult._NOT_GIVEN,
 ) -> str:
     """Build HANDOFF.md content from the durable state on disk.
 
@@ -168,7 +168,7 @@ def render(
     if store.tests_file.is_file():
         text = store.tests_file.read_text(encoding="utf-8").strip()
         try:
-            _, note = testresult.freshness(store.root, json.loads(text))
+            _, note = testresult.freshness(store.root, json.loads(text), tree)
         except ValueError:
             note = "Unreadable record: re-run the tests before relying on it."
         parts.append(_section("Latest test results", note + "\n\n" + _fenced(text, "json")))

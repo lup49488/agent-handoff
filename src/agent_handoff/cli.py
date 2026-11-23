@@ -489,16 +489,23 @@ def cmd_run(args: argparse.Namespace) -> int:
         # the source agent init had recorded from the defaults: run refused
         # with "primary agent does not match task source agent". A task no
         # agent has taken yet simply adopts the chosen primary.
-        task = store.read_task()
-        if task.source_agent != primary.name and task.handoff_count == 0 and not task.attempted:
+        def untaken(task) -> bool:
+            return (task.status == "running" and task.source_agent != primary.name
+                    and task.handoff_count == 0 and not task.attempted)
+
+        if untaken(store.read_task()):
             with _lock(store.lock_file, "select-agent"):
                 task = store.read_task()
+                if not untaken(task):  # changed while the lock was awaited
+                    task = None
+            if task is not None:
                 previous = task.source_agent
-                task.source_agent = primary.name
-                task.fallback_agent = chain[0].name
-                store.write_task(task)
-                log_event(store, "agent_selected", agent=primary.name, reason="configured_primary",
-                          replaced=previous)
+                with _lock(store.lock_file, "select-agent"):
+                    task.source_agent = primary.name
+                    task.fallback_agent = chain[0].name
+                    store.write_task(task)
+                    log_event(store, "agent_selected", agent=primary.name, reason="configured_primary",
+                              replaced=previous)
 
     _echo("chain: " + " -> ".join([primary.name] + [a.name for a in chain]))
     protocol = cfg.checkpoint_protocol and not args.no_checkpoint_protocol
@@ -522,10 +529,15 @@ def cmd_run(args: argparse.Namespace) -> int:
     if status == "handoff_prepared":
         _echo("chain exhausted -- " + str(store.handoff_file) + " is ready for whoever picks it up")
     elif status == "exited":
-        _echo(
-            "the agent exited cleanly, but nothing checked that the task is done -- "
-            "set done_check in the config (or pass --done-check) to have it verified"
-        )
+        completed = [e for e in store.iter_jsonl(store.events_file) if e.get("event") == "agent_completed"]
+        detail = str(completed[-1].get("detail", "")) if completed else ""
+        if detail.startswith("done check could not run"):
+            _echo("the agent exited cleanly, but " + detail + " -- fix done_check and run it yourself")
+        else:
+            _echo(
+                "the agent exited cleanly, but nothing checked that the task is done -- "
+                "set done_check in the config (or pass --done-check) to have it verified"
+            )
     return code
 
 
@@ -694,7 +706,8 @@ def cmd_resume(args: argparse.Namespace) -> int:
     now rather than as of the last pack. Nothing is written.
     """
     store = _open_store()
-    findings = integrity_mod.inspect(store)
+    tree = testresult.tree(store.root)  # once, for both the check and the package
+    findings = integrity_mod.inspect(store, tree=tree)
     _echo("# Taking over")
     _echo("")
     if findings:
@@ -705,7 +718,7 @@ def cmd_resume(args: argparse.Namespace) -> int:
         _echo("handoff verify: ok -- the package is intact")
     _echo("")
     live = gitinfo.collect(store.root)
-    _echo(handoff_pkg.render(store, reason="resumed", git=live).replace("# HANDOFF\n", "", 1).strip())
+    _echo(handoff_pkg.render(store, reason="resumed", git=live, tree=tree).replace("# HANDOFF\n", "", 1).strip())
     return 1 if integrity_mod.errors(findings) else 0
 
 

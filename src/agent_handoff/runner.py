@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import re
 import os
+import shlex
+import shutil
 import signal
 import subprocess
 import sys
@@ -20,6 +22,7 @@ from typing import Callable, Dict, List, Optional, Sequence, Tuple, Union
 
 from agent_handoff import gitinfo
 from agent_handoff.adapters.base import AdapterError, AgentAdapter
+from agent_handoff.adapters.registry import can_allow
 from agent_handoff.checkpoint import CHECKPOINT_PROTOCOL
 from agent_handoff import testresult
 from agent_handoff.events import log_agent_unavailable, log_command, log_event
@@ -107,7 +110,7 @@ def initial_prompt(request: str, with_protocol: bool = True) -> str:
     return request + "\n\n---\n\n" + CHECKPOINT_PROTOCOL
 
 
-def done_check_note(done_check: Optional[str]) -> str:
+def done_check_note(done_check: Optional[str], allowed: bool = True) -> str:
     """What the agent is told about the configured done check, if there is one.
 
     It is the command the supervisor runs to decide whether the task is done,
@@ -117,9 +120,10 @@ def done_check_note(done_check: Optional[str]) -> str:
     """
     if not done_check:
         return ""
+    permission = "it is allowed without asking" if allowed else "it may need approval to run"
     return (
         "\n\n---\n\nThis task counts as done when `" + done_check + "` passes. Run exactly "
-        "that command to check your work; it is allowed without asking. Record its result "
+        "that command to check your work; " + permission + ". Record its result "
         "with `handoff tests`."
     )
 
@@ -129,6 +133,45 @@ DONE_CHECK_TIMEOUT = 3600
 
 #: Reasons a supervisor hands on that say nothing about the agent's health.
 _NOT_UNAVAILABLE = {"exited_unfinished"}
+
+#: Exit codes that say the done check itself never ran: a shell's "command
+#: not found" (127; 9009 from cmd.exe) and "not executable" (126), and the
+#: timeout below. Handing the task on for one of these would launch every
+#: agent in the chain against a check none of them could pass.
+_CHECK_DID_NOT_RUN = {126, 127, 9009}
+_CHECK_TIMED_OUT = 124
+
+
+#: A done check containing one of these is a compound command; only the
+#: shell can say whether it runs, so it is not looked up first.
+_SHELL_OPERATORS = ("&&", "||", ";", "|", ">", "<", "&")
+
+#: Words a shell runs itself rather than finding on PATH.
+_SHELL_BUILTINS = {"cd", "echo", "test", "[", "true", "false", "exit", "set", "export",
+                   "call", "if", "for", "source", ".", "eval", "exec", "env"}
+
+
+def _check_program(command: str, root: Path) -> Optional[str]:
+    """The done check's program, if it cannot be found; None if it can.
+
+    Exit codes cannot tell a missing program from a failing check
+    everywhere: cmd.exe reports an unknown command with exit 1, the same as
+    a failing test run. So the first word is looked up before running.
+    """
+    if any(operator in command for operator in _SHELL_OPERATORS):
+        return None  # a compound command is the shell's to judge
+    try:
+        words = shlex.split(command, posix=os.name != "nt")
+    except ValueError:
+        return None  # leave unparseable commands to the shell
+    if not words:
+        return command
+    program = words[0].strip('"')
+    if "=" in program or program.lower() in _SHELL_BUILTINS:
+        return None  # `FOO=1 pytest`, `cd sub && ...`: not a program to look up
+    if shutil.which(program) or (root / program).is_file() or Path(program).is_file():
+        return None
+    return program
 
 
 def _completion(store: Store, done_check: Optional[str]) -> Tuple[str, str]:
@@ -141,6 +184,10 @@ def _completion(store: Store, done_check: Optional[str]) -> Tuple[str, str]:
     recorded on the code exactly as it is now is the only evidence accepted.
     """
     if done_check:
+        missing = _check_program(done_check, store.root)
+        if missing is not None:
+            log_command(store, done_check, exit_code=127, note="done check not found")
+            return "unverified", "done check could not run (" + missing + " not found): " + done_check
         try:
             result = subprocess.run(
                 done_check, shell=True, cwd=str(store.root), capture_output=True,
@@ -155,6 +202,9 @@ def _completion(store: Store, done_check: Optional[str]) -> Tuple[str, str]:
         log_command(store, done_check, exit_code=exit_code, note="done check")
         if exit_code == 0:
             return "verified", "done check passed: " + done_check
+        if exit_code in _CHECK_DID_NOT_RUN or exit_code == _CHECK_TIMED_OUT:
+            why = "timed out" if exit_code == _CHECK_TIMED_OUT else "exit " + str(exit_code)
+            return "unverified", "done check could not run (" + why + "): " + done_check
         return "unfinished", "done check failed (exit " + str(exit_code) + "): " + done_check
     if testresult.current_pass(store):
         return "verified", "the latest test result passed on the code as it is now"
@@ -181,6 +231,13 @@ ACTIVITY_PROBE_SECONDS = 30.0
 #: agent's process tree counts as working. A long test run or build uses a
 #: core; an agent waiting on an unreachable endpoint uses almost nothing.
 CPU_BUSY_FRACTION = 0.05
+
+#: CPU use alone keeps a silent agent alive for at most this many stall
+#: timeouts. A watcher, language server or MCP server the agent started can
+#: keep using a core while the agent itself is wedged; without a bound such
+#: an agent was never handed on. Output or a change to the work tree has no
+#: such limit.
+CPU_ONLY_LIMIT = 4
 
 #: The handoff files an agent writes as it works. A checkpoint is work.
 _AGENT_STATE_FILES = ("state.md", "checkpoints.jsonl", "tests.json", "events.jsonl", "commands.jsonl")
@@ -300,7 +357,10 @@ def _workspace_state(store: Store) -> Tuple:
     """
     entries = []
     if gitinfo.is_repo(store.root):
-        _, status, _ = gitinfo.run_git(store.root, "status", "--porcelain", "-z", "--untracked-files=all")
+        # --no-renames: with -z a rename is two entries, the second without a
+        # status code, which was read as a garbled path.
+        _, status, _ = gitinfo.run_git(store.root, "status", "--porcelain", "-z", "--no-renames",
+                                       "--untracked-files=all")
         for item in status.split("\0"):
             path = item[3:] if len(item) > 3 else ""
             if not path or gitinfo._is_self(path):
@@ -417,23 +477,24 @@ class _ActivityProbe:
         #: the first look can only set the baseline. False until it has.
         self.judged = False
 
-    def __call__(self) -> bool:
-        busy = False
+    def __call__(self) -> str:
+        """`"workspace"` if files changed, else `"cpu"` if the tree was busy, else ``""``."""
+        found = ""
         workspace = _workspace_state(self.store)
         if workspace != self.workspace:
             self.workspace = workspace
-            busy = True
+            found = "workspace"
         cpu = _cpu_seconds_of_tree(self.pid)
         now = time.monotonic()
         if cpu is None:
             self.judged = True  # no CPU evidence to wait for
         elif self.cpu is not None and self.cpu_at is not None and now > self.cpu_at:
             self.judged = True
-            if cpu - self.cpu >= CPU_BUSY_FRACTION * (now - self.cpu_at):
-                busy = True
+            if not found and cpu - self.cpu >= CPU_BUSY_FRACTION * (now - self.cpu_at):
+                found = "cpu"
         if cpu is not None:
             self.cpu, self.cpu_at = cpu, now
-        return busy
+        return found
 
 
 def _drain(
@@ -452,9 +513,12 @@ def _drain(
     stdout: List[str] = []
     stderr: List[str] = []
     activity = [time.monotonic()]
+    #: The last output or change to the work tree: evidence CPU use cannot
+    #: stand in for indefinitely (CPU_ONLY_LIMIT).
+    hard_activity = [activity[0]]
 
     def touch() -> None:
-        activity[0] = time.monotonic()
+        activity[0] = hard_activity[0] = time.monotonic()
 
     # Daemon threads: a reader still blocked on a pipe that a surviving
     # descendant holds open must not keep the supervisor alive at exit.
@@ -482,6 +546,7 @@ def _drain(
             probe = None
     probe_every = min(ACTIVITY_PROBE_SECONDS, stall_timeout / 2) if stall_timeout else None
     last_probe = [0.0]
+    cpu_only_too_long = False
     try:
         while True:
             try:
@@ -493,11 +558,18 @@ def _drain(
                         and now - activity[0] >= probe_every and now - last_probe[0] >= probe_every):
                     last_probe[0] = now
                     try:
-                        if probe():
-                            touch()
-                            continue
+                        found = probe()
                     except Exception:
-                        pass  # a failed look is no evidence either way
+                        found = ""  # a failed look is no evidence either way
+                    cpu_only_too_long = (found == "cpu"
+                                         and now - hard_activity[0] > stall_timeout * CPU_ONLY_LIMIT)
+                    if found == "cpu" and not cpu_only_too_long:
+                        # As of after the look, which can itself take a second.
+                        activity[0] = time.monotonic()
+                        continue
+                    if found and found != "cpu":
+                        touch()
+                        continue
                 silence = time.monotonic() - activity[0]
                 # Give the CPU one more look if it has not yet been judged --
                 # with a short timeout the first reading can land at the
@@ -506,7 +578,7 @@ def _drain(
                         and not getattr(probe, "judged", True)
                         and silence <= stall_timeout + probe_every):
                     continue
-                if stall_timeout and silence > stall_timeout:
+                if stall_timeout and (silence > stall_timeout or cpu_only_too_long):
                     stalled = True
                     _kill_process_tree(process)
                     # Process-tree tools can fail or return before the direct
@@ -576,7 +648,7 @@ def run(
     current = primary
     for adapter in [primary, *chain]:
         adapter.allowed_commands = (done_check,) if done_check else ()
-    note = done_check_note(done_check)
+    note = done_check_note(done_check, allowed=bool(done_check) and can_allow(done_check))
     process = current.start(initial_prompt(task.original_request, checkpoint_protocol) + note,
                             capture_output=True)
     with _state_lock(store):

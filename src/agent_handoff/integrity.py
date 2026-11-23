@@ -89,7 +89,7 @@ def verify_package(store: Store) -> List[Finding]:
     return found
 
 
-def inspect(store: Store) -> List[Finding]:
+def inspect(store: Store, tree=testresult._NOT_GIVEN) -> List[Finding]:
     """The full state of a store: damage, drift, and leftovers."""
     found: List[Finding] = []
 
@@ -157,7 +157,7 @@ def inspect(store: Store) -> List[Finding]:
             tests = json.loads(store.tests_file.read_text(encoding="utf-8"))
         except ValueError:
             tests = None
-        if isinstance(tests, dict) and testresult.freshness(store.root, tests)[0] == testresult.STALE:
+        if isinstance(tests, dict) and testresult.freshness(store.root, tests, tree)[0] == testresult.STALE:
             found.append(
                 Finding(
                     WARNING,

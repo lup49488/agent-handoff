@@ -11,6 +11,38 @@ is still below 1.0, so the interface may still change.
 
 ## [Unreleased]
 
+### Fixed
+
+- A `done_check` that could not run at all walked the whole chain. A
+  mistyped or missing program, or a check past its timeout, was taken as
+  unfinished work, so every agent in the chain was launched in turn against
+  a check none of them could pass. A check whose program cannot be found,
+  that exits 126 or 127, or that times out now ends the run as `exited`,
+  unverified, and `handoff run` says why. The program is looked up before
+  running, since `cmd.exe` reports an unknown command with exit 1, the same
+  as a failing test run; compound commands and shell builtins are left to
+  the shell.
+- A `done_check` containing `*`, `(` or `)` was put into Claude Code's
+  permission rules as written: `*` is a wildcard there, so the command was
+  allowed more widely than configured, and brackets could make the rule
+  malformed. Such a command is no longer added, and the agent is told it may
+  need approval.
+- CPU use could keep a wedged agent alive indefinitely: a watcher, language
+  server or MCP server it had started kept using a core, the stall clock was
+  reset at every look, and the task was never handed on. CPU use alone now
+  extends a silent agent's life for at most four stall timeouts; output and
+  changes to the work tree have no such limit.
+- Computing a test result's freshness read every untracked file whole, on
+  every `status`, `pack`, `verify` and `resume` — twice in `resume`. Files
+  are now hashed in pieces, and `resume` hashes the tree once.
+- `handoff run` could rewrite the source agent of a task that was already
+  `done` or `exited` before refusing to run it; the configured primary is
+  now adopted only by a running task no agent has taken, checked again
+  under the lock.
+- `handoff config` did not say whether a `done_check` was set.
+- A rename in the work tree was read as a garbled path by the stall check's
+  `git status`; it is now read as a deletion and an addition.
+
 ### Added
 
 - `handoff agents` and `handoff init` say when an installed agent has no

@@ -19,6 +19,16 @@ _BUILTIN: Dict[str, AgentSpec] = {spec.name: spec for spec in BUILTIN_SPECS}
 #: The flag after which a command line lists the tools an agent may use.
 ALLOWED_TOOLS_FLAG = "--allowedTools"
 
+#: Characters with a meaning in a permission rule. `*` is a wildcard, so a
+#: command containing one would be allowed more widely than written; brackets
+#: delimit the rule, so a command containing them could make it malformed.
+_RULE_CHARACTERS = set("*()")
+
+
+def can_allow(command: str) -> bool:
+    """Whether `command` can be put in a permission rule exactly as written."""
+    return bool(command.strip()) and not (_RULE_CHARACTERS & set(command))
+
 #: Config-supplied specs. Replaced wholesale by apply_config, never accumulated.
 _OVERLAY: Dict[str, AgentSpec] = {}
 
@@ -43,9 +53,10 @@ class SpecAdapter(AgentAdapter):
         # either shell. In a real failover drill a Claude Code that took over
         # tried three times to run the tests, was refused each time, and could
         # only judge its predecessor's work by reading it.
-        if self.allowed_commands and ALLOWED_TOOLS_FLAG in args:
+        allowed = [command for command in self.allowed_commands if can_allow(command)]
+        if allowed and ALLOWED_TOOLS_FLAG in args:
             at = args.index(ALLOWED_TOOLS_FLAG) + 1
-            rules = [shell + "(" + command + ")" for command in self.allowed_commands
+            rules = [shell + "(" + command + ")" for command in allowed
                      for shell in ("Bash", "PowerShell")]
             args[at:at] = rules
         return args

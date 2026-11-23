@@ -347,6 +347,7 @@ class Config:
                     str(int(self.stall_timeout_seconds)) + "s"
                     if self.stall_timeout_seconds else "none"
                 ),
+                "done check: " + (self.done_check or "none"),
                 "from: " + source,
             ]
         )
