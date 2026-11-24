@@ -305,6 +305,29 @@ def test_cli_switch_backwards_is_just_another_switch(project, capsys):
     assert "codex" in capsys.readouterr().out
 
 
+def test_the_last_agent_in_the_chain_can_start_a_task(project):
+    """The skill has agents pass their own name; Claude Code is last by default."""
+    assert main(["init", "Fix it", "--source", "claude-code"]) == 0
+    task = Store(project).read_task()
+    assert (task.source_agent, task.fallback_agent) == ("claude-code", "codex")
+
+
+def test_the_last_agent_in_the_chain_can_switch_to_one_before_it(project, capsys):
+    assert main(["init", "Fix it", "--source", "claude-code"]) == 0
+    capsys.readouterr()
+    assert main(["switch", "--dry-run"]) == 0
+    assert "would hand claude-code -> codex" in capsys.readouterr().out
+
+
+def test_an_agent_before_this_one_that_ran_out_is_not_offered(project, capsys):
+    store = init(project, source="claude-code", fallback="codex")
+    task = store.read_task()
+    task.attempted = ["codex"]
+    store.write_task(task)
+    assert main(["switch"]) == 2
+    assert "no agent left in the chain" in capsys.readouterr().out
+
+
 def test_cli_switch_reports_an_exhausted_chain(project, capsys):
     store = init(project)
     task = store.read_task()

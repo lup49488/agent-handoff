@@ -337,6 +337,20 @@ class Config:
                 return candidate
         return None
 
+    def first_other(self, name: str, exclude: Optional[List[str]] = None) -> Optional[str]:
+        """The first agent in the chain other than `name`, wherever it stands.
+
+        For an agent working directly rather than under `handoff run`: it
+        may be anywhere in the chain, the last included, and the agent to
+        hand to is then simply another one -- with the default chain, the
+        Claude Code working directly hands to Codex.
+        """
+        skip = set(exclude or [])
+        for candidate in self.chain:
+            if candidate not in skip and candidate != name:
+                return candidate
+        return None
+
     def describe(self) -> str:
         source = str(self.path) if self.path else "defaults (no config file)"
         return "  ".join(

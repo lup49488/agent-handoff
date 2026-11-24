@@ -113,9 +113,19 @@ def test_an_agent_still_cooling_down_is_not_offered(store, capsys):
     assert "quota_exhausted" in out
 
 
-def test_the_end_of_the_chain_still_ends(store, capsys):
-    # Nothing attempted, nothing recovered: there is genuinely nowhere to go.
+def test_an_agent_before_this_one_that_never_ran_out_is_a_target(store, capsys):
+    # Last in the chain, but codex never ran out on this task -- the task
+    # started with claude-code, as one worked with directly does -- so there
+    # is somewhere to go. The end of the chain is every other agent having
+    # run out (the tests above and below).
     _at_the_end_of_the_chain(store, [])
+    assert main(["switch", "--dry-run"]) == 0
+    assert "would hand claude-code -> codex" in capsys.readouterr().out
+
+
+def test_the_end_of_the_chain_still_ends(store, capsys):
+    # Every other agent ran out and none has been seen to recover.
+    _at_the_end_of_the_chain(store, ["codex"])
     assert main(["switch", "--dry-run"]) == 2
     assert "no agent left in the chain" in capsys.readouterr().out
 

@@ -179,6 +179,16 @@ default. A `handoff switch` from such a package would have handed the task
 to its fallback — Claude Code itself. The skill now tells the agent to
 pass `--source` with its own name.
 
+Run once more with that, Claude Code passed `--source claude-code`, and
+`handoff init` refused it: "no fallback agent for 'claude-code'". With the
+default chain, Codex then Claude Code, nothing comes after Claude Code, and
+`init` looked only after the source. Claude Code worked it out in three more
+calls — reading `init --help`, then adding `--to codex` — and the package
+recorded it correctly, with its diagnosis checkpointed before the first edit
+as before. `handoff switch` had the same gap. Both now hand to the first
+other agent in the chain that has not run out on the task when nothing
+comes after the source.
+
 ## What the drills do not show
 
 They are one small task, run once or twice in each direction; the times

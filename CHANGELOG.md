@@ -37,6 +37,14 @@ is still below 1.0, so the interface may still change.
   would have handed the task to Claude Code itself. The skill now tells the
   agent to pass its own name.
 
+- `handoff init` and `handoff switch` refused an agent last in the chain:
+  with the default chain, `handoff init --source claude-code` failed with
+  "no fallback agent", because only agents after the source were looked
+  at. An agent working directly can be anywhere in the chain, so when
+  nothing comes after it they now take the first other agent that has not
+  run out on the task. Found when Claude Code, told by the skill to pass
+  its own name, spent three extra calls getting past the refusal.
+
 ## [0.12.0] — 2026-11-22
 
 A review of the supervised-run changes since 0.9.2, and Windows CI, found

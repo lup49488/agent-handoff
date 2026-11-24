@@ -147,7 +147,11 @@ def cmd_init(args: argparse.Namespace) -> int:
 
     cfg = config_mod.load(store.root)
     source = registry.canonical_name(args.source or cfg.primary)
-    fallback = registry.canonical_name(args.fallback) if args.fallback else cfg.next_after(source)
+    # The last agent in the chain has nothing after it, but working directly
+    # it still has someone to hand to: `init --source claude-code` with the
+    # default chain was refused, as the skill now tells agents to run it.
+    fallback = (registry.canonical_name(args.fallback) if args.fallback
+                else cfg.next_after(source) or cfg.first_other(source))
     if fallback is None:
         _echo("no fallback agent for '" + source + "' -- pass --to, or configure a chain")
         return 2
@@ -310,6 +314,11 @@ def cmd_switch(args: argparse.Namespace) -> int:
     else:
         book = health_mod.Health.open()
         target = cfg.next_after(source, exclude=task.attempted)
+        if target is None:
+            # Nothing after this agent, but one before it that has not run
+            # out on this task is as good: an agent working directly can be
+            # anywhere in the chain, the last included.
+            target = cfg.first_other(source, exclude=task.attempted)
         if target is None:
             # Nothing left *after* this agent -- but an agent that ran out
             # earlier in the task may have recovered since. Its cooldown
