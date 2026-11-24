@@ -1,6 +1,6 @@
 ---
 name: agent-handoff
-description: Automatically preserve substantive coding work in a local Git repository with the handoff CLI. Use for implementation, debugging, testing, or review work that may outlast one agent; do not use for brief answers, translations, or read-only questions with no repository work.
+description: Track coding work in a Git repository with the handoff CLI, so that another agent can take it over if this one stops partway. Use before changing any file in a Git repository to implement, fix, debug, or test something, however small the task looks, and whenever the repository has a .agent-handoff/ directory or a HANDOFF.md. Do not use for answers, translations, or read-only questions that change no files.
 ---
 
 # Agent Handoff
@@ -10,7 +10,7 @@ Use the installed `handoff` CLI as the source of durable task state. It records 
 ## Start tracking early
 
 - Confirm the CLI is available with `handoff --version`. If it is not on `PATH`, invoke it from a source checkout with `python -m agent_handoff` after setting `PYTHONPATH` to that checkout's `src` directory. On PowerShell, use `$env:PYTHONPATH = "<checkout>\src"`. If neither works, say so; do not invent a replacement state format.
-- For substantive implementation, debugging, testing, or code-review work in a Git repository, start tracking before the first material change. If no package is active, run `handoff init` with a concise, faithful rendering of the user's task. Do this without asking separately unless the user says not to track the task or the work is read-only.
+- For substantive implementation, debugging, testing, or code-review work in a Git repository, start tracking before the first material change. If no package is active, run `handoff init --source <you>` with a concise, faithful rendering of the user's task, where `<you>` is the agent you are (`codex`, `claude-code`, ...): without it the package records the configured primary as the agent doing the work, which may be another agent. Do this without asking separately unless the user says not to track the task or the work is read-only.
 - If a handoff package exists, run `handoff resume`. It checks the package for damage and prints it against the code as it is now—checkpoint, repository state, live diff, and whether the latest test result still holds—so you need not run `handoff status`, `handoff verify`, or read `HANDOFF.md` and the diff separately. The live diff is authoritative when it disagrees with a checkpoint.
 - Do not initialize for brief answers, translation, planning without repository work, or purely read-only questions.
 

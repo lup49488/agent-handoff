@@ -19,6 +19,24 @@ is still below 1.0, so the interface may still change.
   depended on 3.9; the built-in TOML reader is still what loads the config
   on 3.10, which has no `tomllib`.
 
+- The skill's description now says when to use it in terms an agent can
+  check: before changing any file in a Git repository to implement, fix,
+  debug or test something, however small the task looks, and whenever the
+  repository already has a package. It said "work that may outlast one
+  agent", which an agent cannot know: given a small fix directly, Claude
+  Code loaded the skill and never used it, so a stop would have handed over
+  only a diff. With the new description it used the skill in both runs,
+  checkpointing its diagnosis before the first edit and recording the test
+  result from its output. Reinstall the skill wherever it is installed.
+
+### Fixed
+
+- An agent working directly recorded the configured primary, not itself,
+  as the agent doing the work: the skill ran `handoff init` without
+  `--source`, so a Claude Code package named Codex, and `handoff switch`
+  would have handed the task to Claude Code itself. The skill now tells the
+  agent to pass its own name.
+
 ## [0.12.0] — 2026-11-22
 
 A review of the supervised-run changes since 0.9.2, and Windows CI, found

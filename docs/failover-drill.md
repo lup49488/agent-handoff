@@ -140,6 +140,45 @@ the handoff.
 | Codex kept the fix and made the rest | yes | yes |
 | Handoff to acceptance | 67 s | 47 s |
 
+## Claude Code working directly, with the skill installed
+
+The drills above run the agent under `handoff run`, which tells it the
+checkpoint rules. Worked with directly, an agent has only its skill. After
+the Claude Code on this machine was given the skill, the same task was given
+to it directly on 2026-11-23 — `claude -p` with the task alone, not
+mentioning handoff, allowed to run `handoff` and the tests — to see whether
+it would track the work by itself.
+
+**It did not.** The skill was loaded — Claude Code listed it at start-up —
+but never used: Claude Code read the four files, made five edits, ran the
+tests, and finished in 36 seconds with no `handoff` command at all, so a
+stop partway would again have handed over only a diff. Claude Code decides
+whether to use a skill from its description, which said to use it for work
+"that may outlast one agent"; an agent cannot know that, and a task that
+looks like half a minute's work plainly will not.
+
+**The description now says when, in terms an agent can check**: before
+changing any file in a Git repository to implement, fix, debug or test
+something, however small the task looks, and whenever the repository
+already has a package. Run twice more with that, Claude Code used the skill
+both times, and both times as it asks: `handoff init`, then, before its
+first edit, a checkpoint with the diagnosis of all five bugs and the fix
+for each; after the tests, the result recorded from their output together
+with a closing checkpoint, in one command.
+
+| | Before | After, run 1 | After, run 2 |
+|---|---|---|---|
+| Skill used | no | yes | yes |
+| Checkpoint before first edit | none | five bugs and fixes | five bugs and fixes |
+| Test result recorded | no | yes, current | yes, current |
+| Time | 36 s | 49 s | 48 s |
+
+Both packages, though, named Codex as the agent doing the work:
+`handoff init` without `--source` records the configured primary, here the
+default. A `handoff switch` from such a package would have handed the task
+to its fallback — Claude Code itself. The skill now tells the agent to
+pass `--source` with its own name.
+
 ## What the drills do not show
 
 They are one small task, run once or twice in each direction; the times
