@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "agent-handoff"
-version = "0.12.0"
+version = "0.13.0"
 description = "Failover for coding agents. Don't restart when your coding agent stops. Hand it off."
 readme = "README.md"
 requires-python = ">=3.10"

@@ -11,6 +11,23 @@ is still below 1.0, so the interface may still change.
 
 ## [Unreleased]
 
+## [0.13.0] — 2026-11-23
+
+An agent worked with directly now tracks its work: the skill's description
+said to use it for work "that may outlast one agent", which an agent cannot
+know, and Claude Code, given a small fix, loaded the skill and never used
+it. The package it starts now names it as the agent doing the work, and
+it can hand on from the end of the chain. Python 3.10 is now the minimum.
+Upgrading:
+
+- Reinstall the skill from `skills/agent-handoff/` wherever it is
+  installed; `handoff agents` reports a copy that differs as outdated.
+  Expect an agent to start tracking even small changes to a repository.
+- Python 3.9 is no longer supported.
+- `handoff switch` from the last agent in the chain now hands to an
+  earlier agent that has not run out on the task, where it used to report
+  the chain exhausted.
+
 ### Changed
 
 - Python 3.10 or later is now required. Python 3.9 reached end of life in
